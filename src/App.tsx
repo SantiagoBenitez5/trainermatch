@@ -5,7 +5,7 @@ import { TrainerCard } from "./components/TrainerCard";
 import { TrainerProfileView } from "./components/TrainerProfileView";
 import { TrainerForm } from "./components/TrainerForm";
 import { FiltersModal, FilterStates } from "./components/FiltersModal";
-import { getFirebaseAuth, getGoogleProvider } from "./firebaseConfig";
+import { getFirebaseAuth, getGoogleProvider } from "./firebase";
 import { signInWithPopup, signOut } from "firebase/auth";
 import { 
   Search, SlidersHorizontal, Heart, User, Sparkles, Activity, 

@@ -66,69 +66,16 @@ export const TrainerForm: React.FC<TrainerFormProps> = ({
   const [selectedGroupTypes, setSelectedGroupTypes] = useState<string[]>(initialValues[FieldMap.grupoIndividual] || ["Individual"]);
   
   const [fotoUrl, setFotoUrl] = useState(initialValues[FieldMap.fotoUrl] || "");
-  const [uploadMethod, setUploadMethod] = useState<"link" | "upload">("link");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-
-  // Base64 upload states
-  const [fileName, setFileName] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
 
   const toggleItem = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, item: string) => {
     if (list.includes(item)) {
       setList(list.filter(x => x !== item));
     } else {
       setList([...list, item]);
-    }
-  };
-
-  // Convert image file to base64 and upload to server
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setFileName(file.name);
-    setIsUploading(true);
-    setErrorMsg("");
-
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
-        const base64Data = reader.result as string;
-        
-        // Post base64 data to our server
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            file: base64Data,
-            filename: file.name
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setFotoUrl(data.url);
-          setSuccessMsg("¡Foto subida con éxito!");
-          setTimeout(() => setSuccessMsg(""), 3000);
-        } else {
-          setErrorMsg("Error al subir el archivo al servidor.");
-        }
-        setIsUploading(false);
-      };
-      reader.onerror = () => {
-        setErrorMsg("Error al leer el archivo local.");
-        setIsUploading(false);
-      };
-    } catch (err) {
-      console.error(err);
-      setErrorMsg("Ocurrió un error al procesar tu foto.");
-      setIsUploading(false);
     }
   };
 
@@ -553,63 +500,22 @@ export const TrainerForm: React.FC<TrainerFormProps> = ({
       <div className="bg-white p-4 rounded-2xl border border-slate-100 space-y-4 shadow-xs">
         <h3 className="font-bold text-[#7C3AED] text-sm border-b border-slate-100 pb-2">5. Foto de Perfil</h3>
 
-        <div className="flex border-b border-slate-200 bg-slate-50 rounded-lg p-0.5">
-          <button
-            type="button"
-            onClick={() => setUploadMethod("link")}
-            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${
-              uploadMethod === "link" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Pegar Link Externo
-          </button>
-          <button
-            type="button"
-            onClick={() => setUploadMethod("upload")}
-            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${
-              uploadMethod === "upload" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Subir Foto Directo
-          </button>
+        <div>
+          <label className="block font-bold text-slate-600 mb-1 uppercase text-[10px]">Enlace / URL de Foto</label>
+          <div className="relative">
+            <Link2 className="absolute top-2.5 left-2.5 w-4 h-4 text-slate-400" />
+            <input
+              type="url"
+              value={fotoUrl}
+              onChange={(e) => setFotoUrl(e.target.value)}
+              placeholder="https://ejemplo.com/mifoto.jpg"
+              className="w-full border border-slate-200 rounded-lg p-2 pl-9 focus:ring-1 focus:ring-[#7C3AED] focus:outline-none bg-slate-50"
+            />
+          </div>
+          <span className="text-[9px] text-slate-400 mt-1 block leading-relaxed">
+            Por favor pegá un link de tu foto de Instagram, Google Drive público o cualquier servidor de imágenes externo. (Firebase Storage no está activo en plan gratuito).
+          </span>
         </div>
-
-        {uploadMethod === "link" ? (
-          <div>
-            <label className="block font-bold text-slate-600 mb-1 uppercase text-[10px]">Enlace / URL de Foto</label>
-            <div className="relative">
-              <Link2 className="absolute top-2.5 left-2.5 w-4 h-4 text-slate-400" />
-              <input
-                type="url"
-                value={fotoUrl}
-                onChange={(e) => setFotoUrl(e.target.value)}
-                placeholder="https://ejemplo.com/mifoto.jpg"
-                className="w-full border border-slate-200 rounded-lg p-2 pl-9 focus:ring-1 focus:ring-[#7C3AED] focus:outline-none bg-slate-50"
-              />
-            </div>
-            <span className="text-[9px] text-slate-400 mt-1 block leading-relaxed">
-              Puedes pegar un link de tu foto de Instagram, Google Drive público, o cualquier servidor de imágenes externo.
-            </span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <label className="block font-bold text-slate-600 uppercase text-[10px]">Seleccionar Archivo de Imagen</label>
-            <div className="border-2 border-dashed border-slate-200 hover:border-[#7C3AED] transition-colors rounded-xl p-4 text-center cursor-pointer relative bg-slate-50">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                id="file-photo-uploader"
-              />
-              <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="text-slate-500 font-semibold mb-1 text-xs">
-                {isUploading ? "Procesando archivo..." : "Hacé click o arrastrá tu foto aquí"}
-              </p>
-              {fileName && <p className="text-[10px] text-slate-600 font-bold truncate mt-1">Archivo: {fileName}</p>}
-            </div>
-          </div>
-        )}
 
         {fotoUrl && (
           <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex gap-3 items-center">
@@ -626,7 +532,7 @@ export const TrainerForm: React.FC<TrainerFormProps> = ({
 
       <button
         type="submit"
-        disabled={loading || isUploading}
+        disabled={loading}
         className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-98 transition-all cursor-pointer disabled:opacity-50"
         id="trainer-submit-btn"
       >
