@@ -15,6 +15,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import TrainerPanel from "./components/TrainerPanel";
 import UserSpace from "./components/UserSpace";
+import { AuthScreen } from "./components/AuthScreen";
 
 const QUICK_CATEGORIES = ["Todos", "Gimnasio", "Running", "Funcional", "Yoga-Pilates", "Natacion", "Boxeo"];
 
@@ -34,8 +35,9 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Auth State (Combined Real Firebase and Interactive Mock Fallback)
-  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; isMock?: boolean } | null>(null);
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string } | null>(null);
+  const [userRole, setUserRole] = useState<"cliente" | "entrenador" | null>(null);
   
   // Trainer Profile Dashboard State
   const [myProfile, setMyProfile] = useState<TrainerRecord | null>(null);
@@ -65,17 +67,20 @@ export default function App() {
 
   // Initialize Auth & Load Trainers
   useEffect(() => {
-    // 1. Firebase Auth listener setup
     const auth = getFirebaseAuth();
     if (auth) {
       const unsubscribe = auth.onAuthStateChanged((user) => {
-        if (user && !currentUser?.isMock) {
+        if (user) {
           setCurrentUser({ uid: user.uid, email: user.email || "" });
+        } else {
+          setCurrentUser(null);
+          setUserRole(null);
+          setMyProfile(null);
         }
       });
       return () => unsubscribe();
     }
-  }, [currentUser?.isMock]);
+  }, []);
 
   // Load public trainers from server (or fallback to mockup if server is unreachable)
   const fetchTrainers = async () => {
@@ -95,7 +100,7 @@ export default function App() {
         throw new Error("Server responded with error status");
       }
     } catch (err) {
-      console.warn("Airtable not fully initialized. Operating in local demo-mode with pre-loaded profiles.", err);
+      console.warn("Airtable not fully initialized. Operating in local mode with pre-loaded profiles.", err);
       setConnectionStatus("offline");
       setTrainers(MOCK_TRAINERS);
     } finally {
@@ -112,11 +117,12 @@ export default function App() {
     localStorage.setItem("trainermatch_favs", JSON.stringify(favorites));
   }, [favorites]);
 
-  // Load Trainer's Own Profile if Logged In
+  // Load Trainer's Own Profile if Logged In & Sync Role
   useEffect(() => {
     const fetchMyProfile = async () => {
       if (!currentUser) {
         setMyProfile(null);
+        setUserRole(null);
         return;
       }
 
@@ -128,25 +134,18 @@ export default function App() {
           const data = await res.json();
           if (data.records && data.records.length > 0) {
             setMyProfile(data.records[0]);
-          } else if (currentUser.isMock) {
-            // For mock demo, if profile is missing, simulate profile loading of Clara
-            const claraProfile = MOCK_TRAINERS.find(t => t.fields[FieldMap.firebaseUid] === "mockUidClara");
-            if (claraProfile) {
-              setMyProfile({
-                ...claraProfile,
-                fields: {
-                  ...claraProfile.fields,
-                  [FieldMap.firebaseUid]: currentUser.uid,
-                  [FieldMap.email]: currentUser.email
-                }
-              });
-            }
+            setUserRole("entrenador");
+            localStorage.setItem(`trainermatch_role_${currentUser.uid}`, "entrenador");
           } else {
             setMyProfile(null);
+            const localRole = localStorage.getItem(`trainermatch_role_${currentUser.uid}`) as "cliente" | "entrenador" | null;
+            setUserRole(localRole || null);
           }
         }
       } catch (err) {
         console.error("Error loading profile:", err);
+        const localRole = localStorage.getItem(`trainermatch_role_${currentUser.uid}`) as "cliente" | "entrenador" | null;
+        setUserRole(localRole || null);
       } finally {
         setLoadingMyProfile(false);
       }
@@ -156,40 +155,13 @@ export default function App() {
   }, [currentUser]);
 
   // Auth Operations
-  const handleGoogleLogin = async () => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      // Fallback: Login instantly using interactive mock
-      handleMockTrainerLogin();
-      return;
-    }
-    try {
-      const provider = getGoogleProvider();
-      const result = await signInWithPopup(auth, provider);
-      if (result.user) {
-        setCurrentUser({ uid: result.user.uid, email: result.user.email || "" });
-      }
-    } catch (err) {
-      console.warn("Auth popup blocked or configuration missing. Triggering safe interactive fallback.", err);
-      handleMockTrainerLogin();
-    }
-  };
-
-  const handleMockTrainerLogin = () => {
-    // Instant interactive mock login so trainers can test profile management in iframe immediately
-    setCurrentUser({
-      uid: "mockTrainerUid123",
-      email: "entrenador.prueba@trainermatch.com",
-      isMock: true
-    });
-  };
-
   const handleLogout = async () => {
     const auth = getFirebaseAuth();
-    if (auth && !currentUser?.isMock) {
+    if (auth) {
       await signOut(auth);
     }
     setCurrentUser(null);
+    setUserRole(null);
     setMyProfile(null);
     setActiveTab("inicio");
   };
@@ -395,78 +367,82 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row justify-center items-stretch overflow-x-hidden">
+    <div className="min-h-screen bg-[#F5F3FF] flex justify-center items-stretch overflow-hidden">
       
-      {/* LEFT COLUMN: Premium Desktop Landing Card & Guidance Info */}
-      <div className="hidden md:flex flex-col justify-between p-8 lg:p-12 max-w-lg shrink-0 border-r border-slate-800 bg-slate-900/60 backdrop-blur-xl">
-        <div className="space-y-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-[#7C3AED] flex items-center justify-center text-white shadow-md shadow-purple-500/20">
-              <Activity className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <span className="text-xs font-black tracking-wider text-[#A78BFA] uppercase leading-none">Entre Ríos • Gchu</span>
-              <h1 className="text-xl font-extrabold text-white tracking-tight">TrainerMatch</h1>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-2xl font-black text-white leading-tight">Directorio Verificado de Personal Trainers</h2>
-            <p className="text-slate-400 text-xs leading-relaxed">
-              TrainerMatch conecta deportistas locales con entrenadores profesionales en Gualeguaychú. 
-              Buscá por disciplina, modalidad de clase, rangos de precios o zona geográfica de manera estructurada.
-            </p>
-          </div>
-
-          <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700/50 space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                <span>Base Airtable Integrada</span>
-              </div>
-              <span className="text-[10px] bg-slate-700 text-slate-300 font-bold px-2 py-0.5 rounded">ID: apps9X5...</span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              La plataforma lee y escribe directamente en la base de Airtable proporcionada. 
-              Para registrarte como preparador físico, andá a la pestaña <strong>Soy Entrenador</strong>.
-            </p>
-          </div>
-        </div>
-
-        <div className="border-t border-slate-800 pt-6 space-y-4 text-[11px] text-slate-400">
-          <div className="flex items-center gap-2 text-slate-300 font-bold">
-            <Info className="w-4 h-4 text-[#7C3AED]" />
-            <span>Credenciales de Test Rápido</span>
-          </div>
-          <p className="leading-relaxed">
-            Hacé click en "Soy Entrenador" para simular un inicio de sesión instantáneo y probar el panel de control (creación de perfil, subida de fotos, activación/pausa y carga de títulos) sin configurar claves adicionales.
-          </p>
-          <div className="text-[10px] text-slate-500 font-mono mt-2">
-            © 2026 TrainerMatch Gchu. Todos los derechos reservados.
-          </div>
-        </div>
-      </div>
-
-      {/* RIGHT COLUMN: Centered Mobile Device Frame Mockup (430px limit) */}
-      <div className="flex-1 flex justify-center items-center p-0 sm:p-4 bg-slate-950">
+      {/* Centered App Layout Container */}
+      <div className="w-full md:max-w-[480px] h-screen bg-white text-slate-800 flex flex-col relative shadow-2xl overflow-hidden border-0 md:border-x border-slate-200">
         
-        {/* The Mobile Shell Frame */}
-        <div className="w-full max-w-[430px] h-[100vh] sm:h-[880px] sm:max-h-[92vh] bg-white text-slate-800 rounded-none sm:rounded-3xl shadow-2xl overflow-hidden border-0 sm:border-8 border-slate-800 flex flex-col relative">
-          
-          {/* Top Status Notch / Bar Simulation */}
-          <div className="bg-slate-900 text-slate-300 px-5 py-2.5 flex justify-between items-center text-[10px] font-bold select-none shrink-0">
-            <span className="flex items-center gap-1">
-              <Activity className="w-3 h-3 text-[#A78BFA]" />
-              <span>TrainerMatch Gualeguaychú</span>
+        {/* Top low-profile connection status bar */}
+        <div className="bg-slate-900 text-slate-300 px-4 py-2 flex justify-between items-center text-[10px] font-bold select-none shrink-0">
+          <span className="flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-[#A78BFA]" />
+            <span>TrainerMatch Gualeguaychú</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`}></span>
+            <span className="text-slate-400 font-mono text-[9px] uppercase">
+              {connectionStatus === "connected" ? "Airtable Online" : "Modo Fallback"}
             </span>
-            <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500"}`}></span>
-              <span className="text-slate-400 font-mono">{connectionStatus === "connected" ? "Base Airtable Activa" : "Modo Fallback local"}</span>
+          </div>
+        </div>
+
+        {/* Role Selector Screen (Interposed if logged in but role choice is not yet known) */}
+        {currentUser && !userRole ? (
+          <div className="flex-grow flex items-center justify-center p-4 bg-slate-50 overflow-y-auto">
+            <div className="w-full bg-white p-6 rounded-2xl border border-slate-100 shadow-xl space-y-6">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 bg-purple-50 text-[#7C3AED] rounded-full flex items-center justify-center mx-auto shadow-xs">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <h3 className="font-extrabold text-slate-800 text-sm">¿Cómo querés usar TrainerMatch?</h3>
+                <p className="text-xs text-slate-500">Elegí tu tipo de cuenta para continuar</p>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-3">
+                <button
+                  onClick={() => {
+                    localStorage.setItem(`trainermatch_role_${currentUser.uid}`, "cliente");
+                    setUserRole("cliente");
+                  }}
+                  className="p-4 rounded-xl border-2 text-left flex items-start gap-3 transition-all border-slate-100 hover:border-slate-200 text-slate-600 cursor-pointer"
+                >
+                  <div className="p-2 rounded-lg bg-slate-100 text-slate-500 shrink-0">
+                    <Dumbbell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-xs">Soy cliente — busco entrenador</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Quiero buscar entrenadores, agendar clases y seguir mis rutinas.</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    localStorage.setItem(`trainermatch_role_${currentUser.uid}`, "entrenador");
+                    setUserRole("entrenador");
+                  }}
+                  className="p-4 rounded-xl border-2 text-left flex items-start gap-3 transition-all border-slate-100 hover:border-slate-200 text-slate-600 cursor-pointer"
+                >
+                  <div className="p-2 rounded-lg bg-slate-100 text-slate-500 shrink-0">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-xs">Soy entrenador — quiero publicar mi perfil</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Quiero registrar mis datos, subir fotos de títulos y gestionar alumnos.</p>
+                  </div>
+                </button>
+              </div>
+              
+              <button
+                onClick={handleLogout}
+                className="w-full text-center py-2 text-xs font-bold text-red-500 hover:underline cursor-pointer"
+              >
+                Cerrar Sesión
+              </button>
             </div>
           </div>
-
-          {/* Core Scrollable Content Area */}
-          <div className="flex-1 overflow-y-auto no-scrollbar relative bg-slate-50">
+        ) : (
+          /* Core Scrollable Content Area */
+          <div className="flex-grow overflow-y-auto no-scrollbar relative bg-slate-50">
             
             {/* View Switching Logic */}
             {selectedTrainer ? (
@@ -645,34 +621,7 @@ export default function App() {
                     </div>
 
                     {!currentUser ? (
-                      <div className="bg-white p-5 rounded-2xl border border-slate-100 text-center space-y-4 shadow-xs">
-                        <div className="w-12 h-12 bg-purple-50 text-[#7C3AED] rounded-full flex items-center justify-center mx-auto">
-                          <Activity className="w-6 h-6 animate-pulse" />
-                        </div>
-                        <h3 className="font-bold text-slate-800 text-sm">Registrate o Iniciá Sesión</h3>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          Iniciá sesión para agendar tus clases con entrenadores de Gualeguaychú, registrar tus progresos de entrenamiento, y realizar el seguimiento de tus pagos.
-                        </p>
-
-                        <div className="space-y-2 pt-2">
-                          <button
-                            onClick={handleGoogleLogin}
-                            className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                            id="btn-login-google-user"
-                          >
-                            <Sparkles className="w-4 h-4 fill-white" />
-                            <span>Ingresar con Google</span>
-                          </button>
-                          
-                          <button
-                            onClick={handleMockTrainerLogin}
-                            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all text-center block cursor-pointer"
-                            id="btn-login-mock-user"
-                          >
-                            Simular Ingreso (Test Rápido)
-                          </button>
-                        </div>
-                      </div>
+                      <AuthScreen onAuthSuccess={(user) => setCurrentUser(user)} />
                     ) : (
                       <div className="space-y-4">
                         {/* Auth Status Banner */}
@@ -715,36 +664,32 @@ export default function App() {
 
                     {/* Authentication Logic Guard */}
                     {!currentUser ? (
+                      <AuthScreen onAuthSuccess={(user) => setCurrentUser(user)} />
+                    ) : userRole === "cliente" ? (
+                      // OPTION TO UPGRADE TO TRAINER
                       <div className="bg-white p-5 rounded-2xl border border-slate-100 text-center space-y-4 shadow-xs">
                         <div className="w-12 h-12 bg-purple-50 text-[#7C3AED] rounded-full flex items-center justify-center mx-auto">
-                          <User className="w-6 h-6" />
+                          <Plus className="w-6 h-6" />
                         </div>
-                        <h3 className="font-bold text-slate-800 text-sm">Registrate o Iniciá Sesión</h3>
+                        <h3 className="font-bold text-slate-800 text-sm">¿Querés publicar tus servicios?</h3>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          Si eres profesor o personal trainer, inicia sesión para crear o editar tu perfil profesional en TrainerMatch y recibir consultas directas por WhatsApp e Instagram.
+                          Publicá tu perfil en el directorio de TrainerMatch de Gualeguaychú y empezá a recibir consultas directas de alumnos locales por WhatsApp e Instagram.
                         </p>
 
-                        <div className="space-y-2 pt-2">
+                        <div className="pt-2">
                           <button
-                            onClick={handleGoogleLogin}
-                            className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                            id="btn-login-google"
+                            onClick={() => {
+                              localStorage.setItem(`trainermatch_role_${currentUser.uid}`, "entrenador");
+                              setUserRole("entrenador");
+                            }}
+                            className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all cursor-pointer shadow-xs"
                           >
-                            <Sparkles className="w-4 h-4 fill-white" />
-                            <span>Ingresar con Google</span>
-                          </button>
-                          
-                          <button
-                            onClick={handleMockTrainerLogin}
-                            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-xs active:scale-95 transition-all text-center block cursor-pointer"
-                            id="btn-login-mock"
-                          >
-                            Simular Ingreso (Test Rápido)
+                            Comenzar Registro de Entrenador
                           </button>
                         </div>
                       </div>
                     ) : (
-                      // TRAINER DASHBOARD / REGISTRATION FORM (IF LOGGED IN)
+                      // TRAINER DASHBOARD / REGISTRATION FORM (IF LOGGED IN AS TRAINER)
                       <div className="space-y-4">
                         
                         {/* Auth Status Banner */}
@@ -965,97 +910,96 @@ export default function App() {
             )}
 
           </div>
+        )}
 
-          {/* Bottom App-Like Navigation Menu (Persists at bottom of mockup) */}
-          <div className="h-16 bg-white/95 backdrop-blur-md border-t border-slate-100 flex items-stretch z-30 shrink-0 shadow-lg relative max-w-[430px] mx-auto w-full select-none">
-            <button
-              onClick={() => {
-                setSelectedTrainer(null);
+        {/* Bottom App-Like Navigation Menu */}
+        <div className="h-16 bg-white/95 backdrop-blur-md border-t border-slate-100 flex items-stretch z-30 shrink-0 shadow-lg relative w-full select-none">
+          <button
+            onClick={() => {
+              setSelectedTrainer(null);
+              setActiveTab("inicio");
+            }}
+            className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
+              activeTab === "inicio" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
+            }`}
+            id="nav-home"
+          >
+            <Activity className="w-5 h-5 shrink-0" />
+            <span className="text-[9px] font-bold">Inicio</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setSelectedTrainer(null);
+              setActiveTab("buscar");
+              setIsFilterOpen(true);
+            }}
+            className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
+              activeTab === "buscar" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
+            }`}
+            id="nav-search"
+          >
+            <Search className="w-5 h-5 shrink-0" />
+            <span className="text-[9px] font-bold">Buscar</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setSelectedTrainer(null);
+              setActiveTab("guardados");
+            }}
+            className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
+              activeTab === "guardados" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
+            }`}
+            id="nav-saved"
+          >
+            <Heart className="w-5 h-5 shrink-0" />
+            <span className="text-[9px] font-bold">Guardados</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setSelectedTrainer(null);
+              setActiveTab("miespacio");
+            }}
+            className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
+              activeTab === "miespacio" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
+            }`}
+            id="nav-user-space"
+          >
+            <Dumbbell className="w-5 h-5 shrink-0" />
+            <span className="text-[9px] font-bold">Mi Espacio</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setSelectedTrainer(null);
+              setActiveTab("entrenador");
+            }}
+            className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
+              activeTab === "entrenador" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
+            }`}
+            id="nav-trainer"
+          >
+            <User className="w-5 h-5 shrink-0" />
+            <span className="text-[9px] font-bold">Soy Entrenador</span>
+          </button>
+        </div>
+
+        {/* Advanced Filters Slide-Up Drawer */}
+        <AnimatePresence>
+          {isFilterOpen && (
+            <FiltersModal
+              currentFilters={filters}
+              onClose={() => setIsFilterOpen(false)}
+              onApply={(appliedFilters) => {
+                setFilters(appliedFilters);
+                setIsFilterOpen(false);
                 setActiveTab("inicio");
               }}
-              className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
-                activeTab === "inicio" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
-              }`}
-              id="nav-home"
-            >
-              <Activity className="w-5 h-5 shrink-0" />
-              <span className="text-[9px] font-bold">Inicio</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedTrainer(null);
-                setActiveTab("buscar");
-                setIsFilterOpen(true);
-              }}
-              className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
-                activeTab === "buscar" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
-              }`}
-              id="nav-search"
-            >
-              <Search className="w-5 h-5 shrink-0" />
-              <span className="text-[9px] font-bold">Buscar</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedTrainer(null);
-                setActiveTab("guardados");
-              }}
-              className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
-                activeTab === "guardados" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
-              }`}
-              id="nav-saved"
-            >
-              <Heart className="w-5 h-5 shrink-0" />
-              <span className="text-[9px] font-bold">Guardados</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedTrainer(null);
-                setActiveTab("miespacio");
-              }}
-              className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
-                activeTab === "miespacio" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
-              }`}
-              id="nav-user-space"
-            >
-              <Dumbbell className="w-5 h-5 shrink-0" />
-              <span className="text-[9px] font-bold">Mi Espacio</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedTrainer(null);
-                setActiveTab("entrenador");
-              }}
-              className={`flex-1 flex flex-col justify-center items-center gap-1 cursor-pointer transition-colors ${
-                activeTab === "entrenador" && !selectedTrainer ? "text-[#7C3AED]" : "text-slate-400 hover:text-slate-700"
-              }`}
-              id="nav-trainer"
-            >
-              <User className="w-5 h-5 shrink-0" />
-              <span className="text-[9px] font-bold">Soy Entrenador</span>
-            </button>
-          </div>
-
-          {/* Advanced Filters Slide-Up Drawer Drawer */}
-          <AnimatePresence>
-            {isFilterOpen && (
-              <FiltersModal
-                currentFilters={filters}
-                onClose={() => setIsFilterOpen(false)}
-                onApply={(appliedFilters) => {
-                  setFilters(appliedFilters);
-                  setIsFilterOpen(false);
-                  setActiveTab("inicio");
-                }}
-              />
-            )}
-          </AnimatePresence>
-
-        </div>
+            />
+          )}
+        </AnimatePresence>
 
       </div>
 

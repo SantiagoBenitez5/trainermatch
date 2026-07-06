@@ -155,7 +155,7 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
   const mailUrl = trainerEmail ? `mailto:${trainerEmail}` : null;
 
   return (
-    <div className="flex flex-col min-h-full bg-slate-50 pb-28">
+    <div className="flex flex-col min-h-full bg-slate-50 pb-56">
       {/* Cover / Header Section */}
       <div className="relative h-64 w-full bg-slate-800">
         <img
@@ -514,17 +514,17 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
       </div>
 
       {/* Floating Action Contact Panel */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-slate-200 shadow-lg z-30 flex gap-2 justify-center max-w-[430px] mx-auto">
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-xl z-30 flex flex-col gap-2.5">
         {waUrl && (
           <a
             href={waUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 bg-emerald-500 text-white font-bold text-xs py-3 px-2 rounded-xl hover:bg-emerald-600 active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-md shadow-emerald-200"
+            className="w-full bg-[#25D366] text-white font-bold text-xs py-3 px-4 rounded-xl hover:bg-[#20ba5a] active:scale-[0.98] transition-all text-center flex items-center justify-center gap-2 shadow-sm"
             id="btn-whatsapp"
           >
-            <Phone className="w-4 h-4 fill-white" />
-            <span>WhatsApp</span>
+            <Phone className="w-4 h-4 fill-white shrink-0" />
+            <span>Contactar por WhatsApp</span>
           </a>
         )}
 
@@ -533,22 +533,22 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
             href={igUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-gradient-to-tr from-yellow-500 via-pink-500 to-purple-600 text-white font-bold text-xs py-3 px-4 rounded-xl hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+            className="w-full bg-gradient-to-r from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] text-white font-bold text-xs py-3 px-4 rounded-xl hover:opacity-95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm"
             id="btn-instagram"
           >
-            <ExternalLink className="w-4 h-4 text-white" />
-            <span>Instagram</span>
+            <ExternalLink className="w-4 h-4 text-white shrink-0" />
+            <span>Ver Instagram</span>
           </a>
         )}
 
         {mailUrl && (
           <a
             href={mailUrl}
-            className="bg-slate-800 text-white font-bold text-xs py-3 px-4 rounded-xl hover:bg-slate-900 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+            className="w-full bg-white border border-slate-200 text-slate-700 font-bold text-xs py-3 px-4 rounded-xl hover:bg-slate-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xs"
             id="btn-email"
           >
-            <Mail className="w-4 h-4 text-white" />
-            <span>Email</span>
+            <Mail className="w-4 h-4 text-slate-500 shrink-0" />
+            <span>Enviar email</span>
           </a>
         )}
       </div>
