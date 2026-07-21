@@ -44,17 +44,22 @@ export default function UserSpace({
   const [comprobanteUrl, setComprobanteUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
-  // TABATA TIMER ENGINE STATES
+  // CRONOMETRO PROFESIONAL ENGINE STATES
   const [timerPresetName, setTimerPresetName] = useState("");
   const [timerSeries, setTimerSeries] = useState(8);
   const [timerWorkTime, setTimerWorkTime] = useState(20); // seconds
   const [timerRestTime, setTimerRestTime] = useState(10); // seconds
   const [timerExerciseName, setTimerExerciseName] = useState("Trabajo de Fuerza");
+  const [timerRestBetweenSeries, setTimerRestBetweenSeries] = useState(0); // seconds
+  const [timerWarmup, setTimerWarmup] = useState(0); // seconds
+  const [timerCooldown, setTimerCooldown] = useState(0); // seconds
+  const [timerSoundEnabled, setTimerSoundEnabled] = useState(true);
 
   const [currentSerie, setCurrentSerie] = useState(1);
-  const [timerPhase, setTimerPhase] = useState<"work" | "rest" | "idle">("idle");
+  const [timerPhase, setTimerPhase] = useState<"warmup" | "work" | "rest" | "restBetween" | "cooldown" | "idle">("idle");
   const [timeLeft, setTimeLeft] = useState(20);
   const [timerRunning, setTimerRunning] = useState(false);
+  const [timerTotalElapsed, setTimerTotalElapsed] = useState(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // GPS TRACKER ENGINE STATES
@@ -119,8 +124,8 @@ export default function UserSpace({
     } else {
       // Add default preset
       const defaultPresets: TabataPreset[] = [
-        { id: "default-tabata", name: "Tabata Estándar", series: 8, workTime: 20, restTime: 10, exerciseName: "Pushups / Squats" },
-        { id: "default-hiit", name: "HIIT Intenso", series: 10, workTime: 40, restTime: 20, exerciseName: "Burpees" }
+        { id: "default-tabata", name: "Cronómetro Estándar", series: 8, workTime: 20, restTime: 10, exerciseName: "Pushups / Squats", restBetweenSeries: 0, warmup: 0, cooldown: 0, soundEnabled: true },
+        { id: "default-hiit", name: "HIIT Intenso", series: 10, workTime: 40, restTime: 20, exerciseName: "Burpees", restBetweenSeries: 0, warmup: 10, cooldown: 10, soundEnabled: true }
       ];
       setTabataPresets(defaultPresets);
       localStorage.setItem(`tm_presets_${currentUser.uid}`, JSON.stringify(defaultPresets));
@@ -157,6 +162,7 @@ export default function UserSpace({
 
   // Sound Synth for phase changes
   const playBeep = (frequency = 800, duration = 0.15) => {
+    if (!timerSoundEnabled) return;
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextClass) return;
@@ -177,50 +183,108 @@ export default function UserSpace({
     }
   };
 
-  // TABATA TIMER LOGIC
+  const finishWorkout = () => {
+    setTimerRunning(false);
+    setTimerPhase("idle");
+    if (timerSoundEnabled) {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 1000;
+          gain.gain.setValueAtTime(0.15, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.8);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.8);
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+    setWorkouts((currentWorkouts) => {
+      const completeLog: WorkoutRecord = {
+        id: "timer-" + Date.now(),
+        date: new Date().toISOString().split("T")[0],
+        activityType: "Cronómetro profesional",
+        duration: Math.round(timerTotalElapsed / 60) || 1,
+        notes: `Entrenamiento de ${timerSeries} series de ${timerExerciseName} completado con éxito.`
+      };
+      const updated = [completeLog, ...currentWorkouts];
+      localStorage.setItem(`tm_workouts_${currentUser.uid}`, JSON.stringify(updated));
+      return updated;
+    });
+    alert("¡Entrenamiento completado y guardado en tu historial!");
+  };
+
+  // CRONOMETRO PROFESIONAL LOGIC
   useEffect(() => {
     if (timerRunning) {
       timerIntervalRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            // Phase complete!
-            if (timerPhase === "work") {
-              // Beep for rest
-              playBeep(440, 0.4); // lower pitch for rest
-              if (currentSerie >= timerSeries) {
-                // Workout completed!
-                setTimerRunning(false);
-                setTimerPhase("idle");
-                playBeep(1000, 0.8);
-                // Save automatically to history
-                const completeLog: WorkoutRecord = {
-                  id: "timer-" + Date.now(),
-                  date: new Date().toISOString().split("T")[0],
-                  activityType: "Timer Inteligente",
-                  duration: Math.round((timerSeries * (timerWorkTime + timerRestTime)) / 60) || 1,
-                  notes: `Tabata completado: ${timerSeries} series de ${timerExerciseName}.`
-                };
-                saveWorkoutsToLocal([completeLog, ...workouts]);
-                alert("¡Entrenamiento completado y guardado en tu historial!");
-                return 0;
+        // Increment total elapsed time
+        setTimerTotalElapsed((prevTotal) => prevTotal + 1);
+
+        setTimeLeft((prevTime) => {
+          if (prevTime <= 1) {
+            // Phase complete! Transition logic
+            if (timerPhase === "warmup") {
+              // Transition warmup -> work (series 1)
+              playBeep(880, 0.3);
+              setTimerPhase("work");
+              setCurrentSerie(1);
+              return timerWorkTime;
+            } else if (timerPhase === "work") {
+              if (currentSerie < timerSeries) {
+                // Not the last series
+                if (timerRestBetweenSeries > 0) {
+                  playBeep(440, 0.4);
+                  setTimerPhase("restBetween");
+                  return timerRestBetweenSeries;
+                } else if (timerRestTime > 0) {
+                  playBeep(440, 0.4);
+                  setTimerPhase("rest");
+                  return timerRestTime;
+                } else {
+                  // Direct transition to work of next series
+                  playBeep(880, 0.3);
+                  setCurrentSerie((s) => s + 1);
+                  setTimerPhase("work");
+                  return timerWorkTime;
+                }
               } else {
-                setTimerPhase("rest");
-                return timerRestTime;
+                // Last series completed!
+                if (timerCooldown > 0) {
+                  playBeep(520, 0.5);
+                  setTimerPhase("cooldown");
+                  return timerCooldown;
+                } else {
+                  // Finish routine
+                  setTimeout(() => finishWorkout(), 0);
+                  return 0;
+                }
               }
-            } else if (timerPhase === "rest") {
-              // Beep for work
-              playBeep(880, 0.3); // higher pitch for work
+            } else if (timerPhase === "rest" || timerPhase === "restBetween") {
+              // Transition rest/restBetween -> work (next series)
+              playBeep(880, 0.3);
               setCurrentSerie((s) => s + 1);
               setTimerPhase("work");
               return timerWorkTime;
+            } else if (timerPhase === "cooldown") {
+              // Cooldown completed! Finish routine
+              setTimeout(() => finishWorkout(), 0);
+              return 0;
             }
             return 0;
           }
-          // Simple countdown beep in final 3 seconds
-          if (prev <= 4 && prev > 1) {
+
+          // Count down beeps for last 3 seconds of any active phase
+          if (timerSoundEnabled && prevTime <= 4 && prevTime > 1) {
             playBeep(600, 0.08);
           }
-          return prev - 1;
+          return prevTime - 1;
         });
       }, 1000);
     } else {
@@ -232,14 +296,22 @@ export default function UserSpace({
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [timerRunning, timerPhase, currentSerie, timerSeries, timerWorkTime, timerRestTime, workouts]);
+  }, [timerRunning, timerPhase, currentSerie, timerSeries, timerWorkTime, timerRestTime, timerRestBetweenSeries, timerWarmup, timerCooldown, timerSoundEnabled, timerTotalElapsed]);
 
   const handleStartTimer = () => {
     if (timerPhase === "idle") {
-      setCurrentSerie(1);
-      setTimerPhase("work");
-      setTimeLeft(timerWorkTime);
-      playBeep(880, 0.4);
+      setTimerTotalElapsed(0);
+      if (timerWarmup > 0) {
+        setTimerPhase("warmup");
+        setTimeLeft(timerWarmup);
+        setCurrentSerie(1);
+        playBeep(880, 0.4);
+      } else {
+        setTimerPhase("work");
+        setTimeLeft(timerWorkTime);
+        setCurrentSerie(1);
+        playBeep(880, 0.4);
+      }
     }
     setTimerRunning(true);
   };
@@ -252,7 +324,8 @@ export default function UserSpace({
     setTimerRunning(false);
     setTimerPhase("idle");
     setCurrentSerie(1);
-    setTimeLeft(timerWorkTime);
+    setTimeLeft(timerWarmup > 0 ? timerWarmup : timerWorkTime);
+    setTimerTotalElapsed(0);
   };
 
   const handleSavePreset = () => {
@@ -266,7 +339,11 @@ export default function UserSpace({
       series: timerSeries,
       workTime: timerWorkTime,
       restTime: timerRestTime,
-      exerciseName: timerExerciseName
+      exerciseName: timerExerciseName,
+      restBetweenSeries: timerRestBetweenSeries,
+      warmup: timerWarmup,
+      cooldown: timerCooldown,
+      soundEnabled: timerSoundEnabled
     };
     savePresetsToLocal([...tabataPresets, newPreset]);
     setTimerPresetName("");
@@ -278,13 +355,50 @@ export default function UserSpace({
     setTimerWorkTime(preset.workTime);
     setTimerRestTime(preset.restTime);
     setTimerExerciseName(preset.exerciseName);
-    setTimeLeft(preset.workTime);
+    setTimerRestBetweenSeries(preset.restBetweenSeries || 0);
+    setTimerWarmup(preset.warmup || 0);
+    setTimerCooldown(preset.cooldown || 0);
+    setTimerSoundEnabled(preset.soundEnabled !== false);
+    setTimeLeft(preset.warmup && preset.warmup > 0 ? preset.warmup : preset.workTime);
     setTimerPhase("idle");
     setTimerRunning(false);
+    setTimerTotalElapsed(0);
   };
 
   const handleDeletePreset = (id: string) => {
     savePresetsToLocal(tabataPresets.filter(p => p.id !== id));
+  };
+
+  const getCurrentPhaseDuration = () => {
+    if (timerPhase === "warmup") return timerWarmup;
+    if (timerPhase === "work") return timerWorkTime;
+    if (timerPhase === "rest") return timerRestTime;
+    if (timerPhase === "restBetween") return timerRestBetweenSeries;
+    if (timerPhase === "cooldown") return timerCooldown;
+    return 1;
+  };
+
+  const getPhaseConfig = () => {
+    switch (timerPhase) {
+      case "warmup":
+        return { name: "Calentamiento", bg: "bg-[#F59E0B]", border: "border-[#D97706]" };
+      case "work":
+        return { name: "Trabajo", bg: "bg-[#7C3AED]", border: "border-[#6D28D9]" };
+      case "rest":
+        return { name: "Descanso", bg: "bg-[#10B981]", border: "border-[#059669]" };
+      case "restBetween":
+        return { name: "Descanso entre series", bg: "bg-[#10B981]", border: "border-[#059669]" };
+      case "cooldown":
+        return { name: "Enfriamiento", bg: "bg-[#3B82F6]", border: "border-[#2563EB]" };
+      default:
+        return { name: "", bg: "bg-slate-100", border: "border-slate-200" };
+    }
+  };
+
+  const formatTimerTime = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remaining = secs % 60;
+    return `${mins.toString().padStart(2, "0")}:${remaining.toString().padStart(2, "0")}`;
   };
 
 
@@ -924,7 +1038,7 @@ export default function UserSpace({
                     activeTrainingTool === "timer" ? "bg-slate-800 text-white" : "bg-white text-slate-600 border border-slate-100"
                   }`}
                 >
-                  ⏱️ Timer Tabata
+                  ⏱️ Cronómetro profesional
                 </button>
                 <button
                   onClick={() => setActiveTrainingTool("registro")}
@@ -958,98 +1072,175 @@ export default function UserSpace({
                   
                   {/* Phase Display active run */}
                   {timerPhase !== "idle" ? (
-                    <div className={`p-6 rounded-2xl border text-center space-y-4 shadow-md transition-colors ${
-                      timerPhase === "work" ? "bg-purple-600 border-purple-500 text-white" : "bg-emerald-600 border-emerald-500 text-white"
-                    }`}>
-                      <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full">
-                        {timerPhase === "work" ? "🔥 TRABAJO" : "🔋 DESCANSO"}
-                      </span>
-                      <p className="text-xs font-semibold opacity-90">{timerExerciseName}</p>
+                    (() => {
+                      const phaseInfo = getPhaseConfig();
+                      const currentMax = getCurrentPhaseDuration();
+                      const progressPercentage = Math.min(100, Math.max(0, (timeLeft / currentMax) * 100));
+                      
+                      return (
+                        <div className={`p-6 rounded-2xl border text-center space-y-4 shadow-md transition-all duration-500 text-white ${phaseInfo.bg} ${phaseInfo.border}`}>
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full">
+                              {phaseInfo.name}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold bg-white/10 px-2.5 py-1 rounded-full">
+                              Serie {currentSerie} / {timerSeries}
+                            </span>
+                          </div>
+                          
+                          <p className="text-xs font-semibold opacity-90 truncate max-w-full">{timerExerciseName}</p>
 
-                      <h2 className="text-6xl font-black font-mono tracking-tighter leading-none py-2">
-                        {timeLeft}s
-                      </h2>
+                          <div className="relative py-4 flex flex-col items-center justify-center">
+                            {/* Big timer countdown */}
+                            <h2 className="text-7xl font-black font-mono tracking-tighter leading-none">
+                              {timeLeft}s
+                            </h2>
+                          </div>
 
-                      {/* Micro Progress Bar */}
-                      <div className="w-full bg-white/20 h-2 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-white h-full transition-all duration-1000"
-                          style={{ 
-                            width: `${(timeLeft / (timerPhase === "work" ? timerWorkTime : timerRestTime)) * 100}%` 
-                          }}
-                        ></div>
-                      </div>
+                          {/* Linear progress bar */}
+                          <div className="w-full bg-white/20 h-2.5 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-white h-full transition-all duration-1000 ease-linear"
+                              style={{ width: `${progressPercentage}%` }}
+                            ></div>
+                          </div>
 
-                      <div className="flex justify-between text-xs font-bold pt-1 opacity-95">
-                        <span>Serie {currentSerie} de {timerSeries}</span>
-                        <span>Total: {timerSeries * (timerWorkTime + timerRestTime)}s</span>
-                      </div>
+                          {/* Session Stats */}
+                          <div className="grid grid-cols-2 gap-3 pt-2 text-left bg-white/10 p-3 rounded-xl border border-white/10">
+                            <div>
+                              <span className="text-[9px] font-bold uppercase text-white/70 block">Transcurrido</span>
+                              <span className="text-sm font-black font-mono">{formatTimerTime(timerTotalElapsed)}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold uppercase text-white/70 block">Series</span>
+                              <span className="text-sm font-black font-mono">{currentSerie} / {timerSeries}</span>
+                            </div>
+                          </div>
 
-                      {/* Controls during active exercise */}
-                      <div className="flex gap-2.5 pt-2">
-                        <button
-                          onClick={timerRunning ? handlePauseTimer : handleStartTimer}
-                          className="flex-1 bg-white text-slate-800 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          {timerRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                          <span>{timerRunning ? "Pausar" : "Reanudar"}</span>
-                        </button>
-                        <button
-                          onClick={handleResetTimer}
-                          className="px-4 bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl font-bold text-xs flex items-center justify-center cursor-pointer"
-                          title="Reiniciar"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
+                          {/* Controls during active exercise */}
+                          <div className="flex gap-2.5 pt-2">
+                            <button
+                              onClick={timerRunning ? handlePauseTimer : handleStartTimer}
+                              className="flex-1 bg-white hover:bg-slate-50 text-slate-800 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                            >
+                              {timerRunning ? <Pause className="w-4 h-4 text-slate-700" /> : <Play className="w-4 h-4 text-slate-700" />}
+                              <span>{timerRunning ? "Pausar" : "Reanudar"}</span>
+                            </button>
+                            <button
+                              onClick={handleResetTimer}
+                              className="px-4 bg-white/10 hover:bg-white/20 text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center cursor-pointer transition-all"
+                              title="Reiniciar"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : (
-                    // Configuration form of Tabata timer
-                    <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs space-y-4">
+                    // Configuration form of Cronometro profesional
+                    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
                       <div className="space-y-1">
-                        <h4 className="font-extrabold text-xs text-slate-800 uppercase tracking-wider">Configuración Tabata</h4>
-                        <p className="text-[10px] text-slate-500">Configurá las series, intervalos de fuerza y descanso para tu circuito.</p>
+                        <h4 className="font-extrabold text-sm text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          ⏱️ Configuración del Cronómetro
+                        </h4>
+                        <p className="text-[10px] text-slate-500">Configurá series, tiempos de fases y sonido para tu entrenamiento.</p>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-3.5">
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase">Nombre del ejercicio</label>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Nombre del ejercicio</label>
                           <input
                             type="text"
                             value={timerExerciseName}
                             onChange={e => setTimerExerciseName(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
+                            className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-medium focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
+                            placeholder="Ej. Trabajo de Fuerza, Burpees, HIIT..."
                           />
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase">Series</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cantidad de Series</label>
                             <input
                               type="number"
+                              min="1"
                               value={timerSeries}
                               onChange={e => setTimerSeries(Math.max(1, Number(e.target.value)))}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs focus:ring-1 focus:ring-[#7C3AED]"
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase">Trabajo (s)</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Trabajo (segundos)</label>
                             <input
                               type="number"
+                              min="1"
                               value={timerWorkTime}
                               onChange={e => setTimerWorkTime(Math.max(1, Number(e.target.value)))}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs focus:ring-1 focus:ring-[#7C3AED]"
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Descanso por Serie (s)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={timerRestTime}
+                              onChange={e => setTimerRestTime(Math.max(0, Number(e.target.value)))}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase">Descanso (s)</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Descanso entre series (s)</label>
                             <input
                               type="number"
-                              value={timerRestTime}
-                              onChange={e => setTimerRestTime(Math.max(0, Number(e.target.value)))}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs focus:ring-1 focus:ring-[#7C3AED]"
+                              min="0"
+                              value={timerRestBetweenSeries}
+                              onChange={e => setTimerRestBetweenSeries(Math.max(0, Number(e.target.value)))}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
                             />
                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calentamiento previo (s)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={timerWarmup}
+                              onChange={e => setTimerWarmup(Math.max(0, Number(e.target.value)))}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Enfriamiento posterior (s)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={timerCooldown}
+                              onChange={e => setTimerCooldown(Math.max(0, Number(e.target.value)))}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Sound enabled Toggle Switch */}
+                        <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-700 block">Efectos de sonido</span>
+                            <span className="text-[9px] text-slate-400">Sonido de aviso en los últimos segundos y cambios de fase.</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setTimerSoundEnabled(!timerSoundEnabled)}
+                            className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${timerSoundEnabled ? "bg-[#7C3AED]" : "bg-slate-300"}`}
+                          >
+                            <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full shadow-md transition-transform ${timerSoundEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                          </button>
                         </div>
 
                         {/* Preset saving block */}
@@ -1059,23 +1250,23 @@ export default function UserSpace({
                             placeholder="Nombre para guardar Preset..."
                             value={timerPresetName}
                             onChange={e => setTimerPresetName(e.target.value)}
-                            className="flex-1 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5 text-[10px] focus:outline-none"
+                            className="flex-1 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2 text-[10px] focus:ring-1 focus:ring-[#7C3AED] focus:outline-none"
                           />
                           <button
                             type="button"
                             onClick={handleSavePreset}
-                            className="bg-purple-50 text-[#7C3AED] hover:bg-purple-100 font-bold px-3 py-1.5 rounded-lg text-[10px] flex items-center gap-1 cursor-pointer shrink-0"
+                            className="bg-purple-50 text-[#7C3AED] hover:bg-purple-100 font-bold px-3 py-2 rounded-lg text-[10px] flex items-center gap-1 cursor-pointer shrink-0"
                           >
                             <Save className="w-3.5 h-3.5" />
-                            <span>Guardar</span>
+                            <span>Guardar Preset</span>
                           </button>
                         </div>
 
                         <button
                           onClick={handleStartTimer}
-                          className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                          className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
                         >
-                          <Play className="w-4 h-4 fill-white" />
+                          <Play className="w-4 h-4 fill-white text-white" />
                           <span>Iniciar Entrenamiento</span>
                         </button>
                       </div>
@@ -1085,7 +1276,7 @@ export default function UserSpace({
                   {/* Saved Presets list */}
                   {timerPhase === "idle" && tabataPresets.length > 0 && (
                     <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">Mis Presets Guardados</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block">Mis Presets Guardados</span>
                       <div className="grid grid-cols-1 gap-2">
                         {tabataPresets.map((pr) => (
                           <div key={pr.id} className="bg-white p-3 rounded-xl border border-slate-100 flex items-center justify-between gap-2 shadow-xs">
@@ -1095,7 +1286,11 @@ export default function UserSpace({
                             >
                               <h5 className="font-bold text-xs text-slate-800 truncate">{pr.name}</h5>
                               <p className="text-[10px] text-slate-500 font-medium">
-                                {pr.series} series • {pr.workTime}s/{pr.restTime}s ({pr.exerciseName})
+                                {pr.series} series • {pr.workTime}s/{pr.restTime}s 
+                                {pr.restBetweenSeries ? ` • Int: ${pr.restBetweenSeries}s` : ""}
+                                {pr.warmup ? ` • Cal: ${pr.warmup}s` : ""}
+                                {pr.cooldown ? ` • Enfr: ${pr.cooldown}s` : ""}
+                                {` (${pr.exerciseName})`}
                               </p>
                             </button>
                             <button

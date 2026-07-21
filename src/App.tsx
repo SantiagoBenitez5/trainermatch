@@ -38,6 +38,7 @@ export default function App() {
   // Auth State
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string } | null>(null);
   const [userRole, setUserRole] = useState<"cliente" | "entrenador" | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
   
   // Trainer Profile Dashboard State
   const [myProfile, setMyProfile] = useState<TrainerRecord | null>(null);
@@ -65,20 +66,56 @@ export default function App() {
   const [verifSubmitting, setVerifSubmitting] = useState(false);
   const [verifSuccess, setVerifSuccess] = useState(false);
 
-  // Initialize Auth & Load Trainers
+  // Initialize Auth & Load Trainers & Profiles
   useEffect(() => {
     const auth = getFirebaseAuth();
     if (auth) {
-      const unsubscribe = auth.onAuthStateChanged((user) => {
+      const unsubscribe = auth.onAuthStateChanged(async (user) => {
         if (user) {
-          setCurrentUser({ uid: user.uid, email: user.email || "" });
+          const uid = user.uid;
+          const email = user.email || "" ;
+          setCurrentUser({ uid, email });
+
+          // Fetch Trainer profile immediately (inside auth listener)
+          setLoadingMyProfile(true);
+          try {
+            const res = await fetch(`/api/trainers?firebase_uid=${uid}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.records && data.records.length > 0) {
+                setMyProfile(data.records[0]);
+                setUserRole("entrenador");
+                localStorage.setItem(`trainermatch_role_${uid}`, "entrenador");
+              } else {
+                setMyProfile(null);
+                // Read localRole ONLY after firebase confirms user
+                const localRole = localStorage.getItem(`trainermatch_role_${uid}`) as "cliente" | "entrenador" | null;
+                setUserRole(localRole || null);
+              }
+            } else {
+              setMyProfile(null);
+              const localRole = localStorage.getItem(`trainermatch_role_${uid}`) as "cliente" | "entrenador" | null;
+              setUserRole(localRole || null);
+            }
+          } catch (err) {
+            console.error("Error fetching trainer profile on login:", err);
+            setMyProfile(null);
+            const localRole = localStorage.getItem(`trainermatch_role_${uid}`) as "cliente" | "entrenador" | null;
+            setUserRole(localRole || null);
+          } finally {
+            setLoadingMyProfile(false);
+            setAuthLoading(false);
+          }
         } else {
           setCurrentUser(null);
           setUserRole(null);
           setMyProfile(null);
+          setAuthLoading(false);
         }
       });
       return () => unsubscribe();
+    } else {
+      setAuthLoading(false);
     }
   }, []);
 
@@ -117,48 +154,14 @@ export default function App() {
     localStorage.setItem("trainermatch_favs", JSON.stringify(favorites));
   }, [favorites]);
 
-  // Load Trainer's Own Profile if Logged In & Sync Role
-  useEffect(() => {
-    const fetchMyProfile = async () => {
-      if (!currentUser) {
-        setMyProfile(null);
-        setUserRole(null);
-        return;
-      }
-
-      try {
-        setLoadingMyProfile(true);
-        // Attempt to fetch profile associated with current Firebase UID
-        const res = await fetch(`/api/trainers?uid=${currentUser.uid}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.records && data.records.length > 0) {
-            setMyProfile(data.records[0]);
-            setUserRole("entrenador");
-            localStorage.setItem(`trainermatch_role_${currentUser.uid}`, "entrenador");
-          } else {
-            setMyProfile(null);
-            const localRole = localStorage.getItem(`trainermatch_role_${currentUser.uid}`) as "cliente" | "entrenador" | null;
-            setUserRole(localRole || null);
-          }
-        }
-      } catch (err) {
-        console.error("Error loading profile:", err);
-        const localRole = localStorage.getItem(`trainermatch_role_${currentUser.uid}`) as "cliente" | "entrenador" | null;
-        setUserRole(localRole || null);
-      } finally {
-        setLoadingMyProfile(false);
-      }
-    };
-
-    fetchMyProfile();
-  }, [currentUser]);
-
   // Auth Operations
   const handleLogout = async () => {
     const auth = getFirebaseAuth();
     if (auth) {
       await signOut(auth);
+    }
+    if (currentUser) {
+      localStorage.removeItem(`trainermatch_role_${currentUser.uid}`);
     }
     setCurrentUser(null);
     setUserRole(null);
@@ -366,26 +369,23 @@ export default function App() {
     );
   });
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F5F3FF] flex items-center justify-center" id="auth-loading-spinner">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-[#7C3AED] animate-spin mx-auto"></div>
+          <p className="text-sm font-medium text-slate-500">Cargando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F3FF] flex justify-center items-stretch overflow-hidden">
       
       {/* Centered App Layout Container */}
       <div className="w-full md:max-w-[480px] h-screen bg-white text-slate-800 flex flex-col relative shadow-2xl overflow-hidden border-0 md:border-x border-slate-200">
         
-        {/* Top low-profile connection status bar */}
-        <div className="bg-slate-900 text-slate-300 px-4 py-2 flex justify-between items-center text-[10px] font-bold select-none shrink-0">
-          <span className="flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-[#A78BFA]" />
-            <span>TrainerMatch Gualeguaychú</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`}></span>
-            <span className="text-slate-400 font-mono text-[9px] uppercase">
-              {connectionStatus === "connected" ? "Airtable Online" : "Modo Fallback"}
-            </span>
-          </div>
-        </div>
-
         {/* Role Selector Screen (Interposed if logged in but role choice is not yet known) */}
         {currentUser && !userRole ? (
           <div className="flex-grow flex items-center justify-center p-4 bg-slate-50 overflow-y-auto">
@@ -732,26 +732,61 @@ export default function App() {
                           <div className="space-y-4">
                             
                             {/* Profile State Switcher */}
-                            <div className="bg-white p-4 rounded-xl border border-slate-100 flex justify-between items-center shadow-xs">
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Estado del Perfil</span>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span className={`w-2 h-2 rounded-full ${myProfile.fields[FieldMap.estado] === "Activo" ? "bg-emerald-500" : "bg-amber-500"}`}></span>
-                                  <span className="font-bold text-xs text-slate-800">{myProfile.fields[FieldMap.estado]}</span>
-                                </div>
+                            {myProfile.fields[FieldMap.estado] === "Pendiente" && (
+                              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex flex-col gap-1 shadow-xs" id="profile-status-pending">
+                                <span className="text-[10px] font-bold text-amber-800 uppercase">Estado del Perfil: Pendiente</span>
+                                <p className="text-xs text-amber-700 font-medium">
+                                  Tu perfil está siendo revisado. Lo activaremos dentro de las próximas 24-48hs.
+                                </p>
                               </div>
-                              <button
-                                onClick={handleToggleActiveState}
-                                className={`px-4 py-2 rounded-lg font-bold text-xs transition-all active:scale-95 cursor-pointer ${
-                                  myProfile.fields[FieldMap.estado] === "Activo"
-                                    ? "bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100"
-                                    : "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"
-                                }`}
-                                id="toggle-active-btn"
-                              >
-                                {myProfile.fields[FieldMap.estado] === "Activo" ? "Pausar Perfil" : "Activar Perfil"}
-                              </button>
-                            </div>
+                            )}
+
+                            {myProfile.fields[FieldMap.estado] === "Activo" && (
+                              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex justify-between items-center shadow-xs" id="profile-status-active">
+                                <div>
+                                  <span className="text-[10px] font-bold text-emerald-800 uppercase block">Estado del Perfil</span>
+                                  <span className="inline-flex items-center gap-1.5 mt-1 bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-1 rounded-full">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Perfil activo
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={handleToggleActiveState}
+                                  className="bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 px-4 py-2 rounded-lg font-bold text-xs transition-all active:scale-95 cursor-pointer"
+                                  id="toggle-active-btn"
+                                >
+                                  Pausar Perfil
+                                </button>
+                              </div>
+                            )}
+
+                            {myProfile.fields[FieldMap.estado] === "Pausado" && (
+                              <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex justify-between items-center shadow-xs" id="profile-status-paused">
+                                <div>
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Estado del Perfil</span>
+                                  <span className="inline-flex items-center gap-1.5 mt-1 bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-full">
+                                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                                    Perfil pausado
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={handleToggleActiveState}
+                                  className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-lg font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-xs"
+                                  id="toggle-active-btn"
+                                >
+                                  Reactivar Perfil
+                                </button>
+                              </div>
+                            )}
+
+                            {myProfile.fields[FieldMap.estado] === "Rechazado" && (
+                              <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex flex-col gap-1 shadow-xs" id="profile-status-rejected">
+                                <span className="text-[10px] font-bold text-red-800 uppercase">Estado del Perfil: Rechazado</span>
+                                <p className="text-xs text-red-700 font-medium">
+                                  Tu perfil fue rechazado. Contactanos por WhatsApp.
+                                </p>
+                              </div>
+                            )}
 
                             {/* Simulated Stats Panel */}
                             <div className="grid grid-cols-2 gap-3">

@@ -143,6 +143,10 @@ export interface TabataPreset {
   workTime: number; // in seconds
   restTime: number; // in seconds
   exerciseName: string;
+  restBetweenSeries?: number; // in seconds
+  warmup?: number; // in seconds
+  cooldown?: number; // in seconds
+  soundEnabled?: boolean;
 }
 
 export interface WorkoutRecord {

@@ -28,8 +28,9 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 // 1. GET /api/trainers - Get active trainers or filtered by Firebase UID
 app.get("/api/trainers", async (req, res) => {
   try {
-    const { uid, email } = req.query;
-    const data = await db.getTrainers(uid as string, email as string);
+    const { uid, firebase_uid, email } = req.query;
+    const actualUid = (firebase_uid || uid) as string;
+    const data = await db.getTrainers(actualUid, email as string);
     res.json(data);
   } catch (error: any) {
     console.error("GET /api/trainers error:", error);
