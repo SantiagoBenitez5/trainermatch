@@ -1,0 +1,6 @@
+{
+  "name": "TrainerMatch",
+  "description": "Marketplace que conecta personal trainers y coaches deportivos con clientes en Gualeguaychú, Entre Ríos",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
