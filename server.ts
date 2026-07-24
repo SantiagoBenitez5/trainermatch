@@ -184,6 +184,17 @@ app.patch("/api/conexiones/:id", async (req, res) => {
 
 // --- CLASES API ---
 
+app.get("/api/clases/publicas", async (req, res) => {
+  try {
+    const { trainer_id } = req.query;
+    const data = await db.getPublicClases(trainer_id as string);
+    res.json(data);
+  } catch (error: any) {
+    console.error("GET /api/clases/publicas error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/clases", async (req, res) => {
   try {
     const { trainer_uid, usuario_uid } = req.query;
@@ -205,6 +216,88 @@ app.post("/api/clases", async (req, res) => {
     res.json(data);
   } catch (error: any) {
     console.error("POST /api/clases error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/clases/:id/solicitar", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userUid } = req.body;
+    if (!userUid) return res.status(400).json({ error: "Missing userUid" });
+    const data = await db.solicitarClase(id, userUid);
+    res.json(data);
+  } catch (error: any) {
+    console.error("POST /api/clases/:id/solicitar error:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/api/clases/:id/espera", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userUid } = req.body;
+    if (!userUid) return res.status(400).json({ error: "Missing userUid" });
+    const data = await db.unirseEsperaClase(id, userUid);
+    res.json(data);
+  } catch (error: any) {
+    console.error("POST /api/clases/:id/espera error:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch("/api/clases/:id/aprobar/:uid", async (req, res) => {
+  try {
+    const { id, uid } = req.params;
+    const { userUid } = req.body; // Trainer UID
+    if (!userUid) return res.status(400).json({ error: "Missing trainer userUid" });
+    const data = await db.aprobarSolicitudClase(id, uid, userUid);
+    res.json(data);
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return res.status(403).json({ error: "Unauthorized" });
+    console.error("PATCH /api/clases/:id/aprobar/:uid error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/clases/:id/rechazar/:uid", async (req, res) => {
+  try {
+    const { id, uid } = req.params;
+    const { userUid } = req.body;
+    if (!userUid) return res.status(400).json({ error: "Missing userUid" });
+    const data = await db.rechazarSolicitudClase(id, uid, userUid);
+    res.json(data);
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return res.status(403).json({ error: "Unauthorized" });
+    console.error("PATCH /api/clases/:id/rechazar/:uid error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/clases/:id/remover/:uid", async (req, res) => {
+  try {
+    const { id, uid } = req.params;
+    const { userUid } = req.body;
+    if (!userUid) return res.status(400).json({ error: "Missing userUid" });
+    const data = await db.removerAlumnoClase(id, uid, userUid);
+    res.json(data);
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return res.status(403).json({ error: "Unauthorized" });
+    console.error("PATCH /api/clases/:id/remover/:uid error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/clases/:id/invitar", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { inviteEmail, userUid } = req.body;
+    if (!inviteEmail || !userUid) return res.status(400).json({ error: "Missing inviteEmail or userUid" });
+    const data = await db.invitarAlumnoClase(id, inviteEmail, userUid);
+    res.json(data);
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return res.status(403).json({ error: "Unauthorized" });
+    console.error("POST /api/clases/:id/invitar error:", error);
     res.status(500).json({ error: error.message });
   }
 });

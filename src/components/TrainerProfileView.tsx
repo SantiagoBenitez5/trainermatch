@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { TrainerRecord, ReviewRecord, ReviewFields, FieldMap } from "../types";
+import { TrainerRecord, ReviewRecord, ReviewFields, FieldMap, ClaseRecord } from "../types";
 import { 
   ArrowLeft, Star, Heart, MapPin, Clock, Calendar, Users, 
   DollarSign, Mail, Phone, ExternalLink, Send, ShieldCheck, 
-  Award, CheckCircle2, MessageSquare, AlertCircle
+  Award, CheckCircle2, MessageSquare, AlertCircle, ChevronDown, ChevronUp
 } from "lucide-react";
 import { motion } from "motion/react";
 
 interface TrainerProfileViewProps {
   trainer: TrainerRecord;
+  currentUser?: { uid: string; email: string } | null;
   onBack: () => void;
   isFavorite: boolean;
   onToggleFavorite: (e: React.MouseEvent, recordId: string) => void;
@@ -16,6 +17,7 @@ interface TrainerProfileViewProps {
 
 export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
   trainer,
+  currentUser,
   onBack,
   isFavorite,
   onToggleFavorite
@@ -23,10 +25,18 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
   const fields = trainer.fields;
   const trainerEmail = fields[FieldMap.email];
   const trainerName = fields[FieldMap.nombre];
+  const trainerUid = fields[FieldMap.firebaseUid] || (fields as any)["fldxAia9g1UcKdPLu"] || trainer.id;
 
   const [activeTab, setActiveTab] = useState<"profesional" | "personal">("profesional");
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
   const [loadingReviews, setLoadingReviews] = useState<boolean>(true);
+
+  // Public Classes State
+  const [publicClasses, setPublicClasses] = useState<ClaseRecord[]>([]);
+  const [loadingClasses, setLoadingClasses] = useState<boolean>(true);
+  const [isClassesOpen, setIsClassesOpen] = useState<boolean>(true);
+  const [actionClassId, setActionClassId] = useState<string | null>(null);
+  const [classActionStatus, setClassActionStatus] = useState<{ [id: string]: string }>({});
   
   // New Review Form State
   const [clientName, setClientName] = useState("");
@@ -35,6 +45,35 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
   const [reviewError, setReviewError] = useState("");
+
+  // Fetch Public Classes for this trainer
+  useEffect(() => {
+    const fetchClasses = async () => {
+      try {
+        setLoadingClasses(true);
+        const res = await fetch(`/api/clases/publicas?trainer_id=${encodeURIComponent(trainerUid)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const todayStr = new Date().toISOString().split("T")[0];
+          const filtered = (data.records || []).filter((c: ClaseRecord) => {
+            const vis = c.fields[ldye17iriK8T181P"] || (c.fields as any)["Visibilidad"] || "Pública";
+            const est = c.fields["fldORKAoJFYsBDuOU"] || (c.fields as any)["Estado"] || "Programada";
+            const fecha = c.fields["fld5GqA8PNqmIFJrp"] || "";
+            return vis === "Pública" && est === "Programada" && (fecha ? fecha >= todayStr : true);
+          });
+          setPublicClasses(filtered);
+        }
+      } catch (err) {
+        console.error("Error loading public classes:", err);
+      } finally {
+        setLoadingClasses(false);
+      }
+    };
+
+    if (trainerUid) {
+      fetchClasses();
+    }
+  }, [trainerUid]);
 
   // Fetch Reviews on mount or email change
   useEffect(() => {
@@ -59,6 +98,38 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
       fetchReviews();
     }
   }, [trainerEmail]);
+
+  // Handle request to join class or waitlist
+  const handleRequestJoinClass = async (clase: ClaseRecord, isWaitlist: boolean) => {
+    if (!currentUser) {
+      alert("Por favor iniciá sesión en 'Mi Espacio' para poder solicitar unirte a las clases de un entrenador.");
+      return;
+    }
+
+    try {
+      setActionClassId(clase.id);
+      const endpoint = isWaitlist ? `/api/clases/${clase.id}/espera` : `/api/clases/${clase.id}/solicitar`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userUid: currentUser.uid })
+      });
+
+      if (res.ok) {
+        setClassActionStatus(prev => ({
+          ...prev,
+          [clase.id]: isWaitlist ? "Anotado en lista de espera" : "Solicitud enviada"
+        }));
+      } else {
+        const errText = await res.text();
+        alert("Error: " + errText);
+      }
+    } catch (err: any) {
+      alert("Error al procesar solicitud: " + err.message);
+    } finally {
+      setActionClassId(null);
+    }
+  };
 
   // Handle submit review
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -365,6 +436,126 @@ export const TrainerProfileView: React.FC<TrainerProfileViewProps> = ({
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Clases Disponibles Section (Only if public classes exist) */}
+            {publicClasses.length > 0 && (
+              <div className="bg-white p-4 rounded-2xl shadow-xs border border-purple-100 space-y-3">
+                <button
+                  onClick={() => setIsClassesOpen(!isClassesOpen)}
+                  className="w-full flex justify-between items-center text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-[#7C3AED]" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Clases Disponibles ({publicClasses.length})
+                    </h3>
+                  </div>
+                  {isClassesOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                </button>
+
+                {isClassesOpen && (
+                  <div className="space-y-3 pt-1">
+                    {publicClasses.map((cls) => {
+                      const cFields = cls.fields;
+                      const title = cFields["fld87QH0tdReGaKLT"] || "Clase Abierta";
+                      const tipo = cFields["fldULIptbbqkM1pJZ"] || "Entrenamiento";
+                      const disciplina = cFields["fldGVEVEy6iIpwb9b"] || "Funcional";
+                      const fechaRaw = cFields["fld5GqA8PNqmIFJrp"] || "";
+                      const lugar = cFields["fld3bk5b2r4FCpy8d"] || "A convenir";
+                      const precio = cFields["fldVYzxNcAP93MAkA"] || 0;
+                      const cupoMax = cFields["fldh1XAPkKdfTnVEB"] || 10;
+                      
+                      const anotadosStr = cFields["fldVHgp4Ncfhz87HV"] || "";
+                      const anotadosArr = anotadosStr.split(",").map(s => s.trim()).filter(Boolean);
+                      const ocupados = anotadosArr.length;
+                      const disponibles = Math.max(0, cupoMax - ocupados);
+                      const isFull = cupoMax > 0 && disponibles <= 0;
+
+                      const isAlreadyEnrolled = currentUser && anotadosArr.includes(currentUser.uid);
+                      const pendingStr = cFields["fldMhg6dIVBz4zndi"] || (cFields as any)["Usuarios_Pendientes"] || "";
+                      const isAlreadyPending = currentUser && pendingStr.includes(currentUser.uid);
+                      const esperaStr = cFields["fldAIHxWGe33npWxZ"] || (cFields as any)["Usuarios_Espera"] || "";
+                      const isAlreadyWaitlist = currentUser && esperaStr.includes(currentUser.uid);
+
+                      const statusMsg = classActionStatus[cls.id];
+
+                      let dateFormatted = fechaRaw;
+                      if (fechaRaw) {
+                        try {
+                          const d = new Date(fechaRaw);
+                          dateFormatted = d.toLocaleString("es-AR", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          });
+                        } catch (e) {
+                          dateFormatted = fechaRaw;
+                        }
+                      }
+
+                      return (
+                        <div key={cls.id} className="p-3 bg-purple-50/50 rounded-xl border border-purple-100/70 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="inline-block bg-purple-100 text-[#7C3AED] text-[9px] font-extrabold px-2 py-0.5 rounded-full mb-1">
+                                {tipo} • {disciplina}
+                              </span>
+                              <h4 className="text-xs font-bold text-slate-800">{title}</h4>
+                            </div>
+                            <span className="text-xs font-extrabold text-[#7C3AED]">
+                              {precio === 0 ? "Gratuita" : `$${precio.toLocaleString()}`}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5 text-[11px] text-slate-600">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="capitalize">{dateFormatted}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate">{lugar}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center pt-1 border-t border-purple-100/80 text-[10px]">
+                            <span className={`font-bold ${isFull ? "text-amber-600" : "text-emerald-600"}`}>
+                              {cupoMax === 0 ? "Sin límite de cupo" : isFull ? "Completa - Lista de espera" : `${disponibles} de ${cupoMax} disponibles`}
+                            </span>
+
+                            {isAlreadyEnrolled ? (
+                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                                ✓ Ya estás anotado
+                              </span>
+                            ) : statusMsg || isAlreadyPending || isAlreadyWaitlist ? (
+                              <span className="bg-purple-100 text-[#7C3AED] text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                                {statusMsg || (isAlreadyPending ? "Solicitud enviada" : "En lista de espera")}
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleRequestJoinClass(cls, isFull)}
+                                disabled={actionClassId === cls.id}
+                                className={`px-3 py-1.5 rounded-lg text-white font-bold text-[10px] shadow-xs cursor-pointer transition-all ${
+                                  isFull ? "bg-amber-500 hover:bg-amber-600" : "bg-[#7C3AED] hover:bg-[#6D28D9]"
+                                }`}
+                              >
+                                {actionClassId === cls.id
+                                  ? "Enviando..."
+                                  : isFull
+                                  ? "Unirse a lista de espera"
+                                  : "Solicitar unirse"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

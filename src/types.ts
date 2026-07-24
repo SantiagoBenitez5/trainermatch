@@ -105,6 +105,10 @@ export interface ClaseFields {
   "fldVYzxNcAP93MAkA": number; // Precio
   "fldwUwWi8eU8vXUfI"?: string; // Descripcion
   "fldVHgp4Ncfhz87HV"?: string; // Usuarios_Anotados
+  ldye17iriK8T181P"?: "Pública" | "Profesional privada" | "Rutina personal"; // Visibilidad
+  "fldMhg6dIVBz4zndi"?: string; // Usuarios_Pendientes
+  "fldAIHxWGe33npWxZ"?: string; // Usuarios_Espera
+  "fldY2Ed9MrcpR6uwG"?: "Cualquiera" | "Femenino" | "Masculino"; // Sexo_Preferente
   "fldORKAoJFYsBDuOU": "Programada" | "En curso" | "Finalizada" | "Cancelada"; // Estado
   "fld7DZ1q8VMGOVWPw"?: string; // Notas_Trainer
 }

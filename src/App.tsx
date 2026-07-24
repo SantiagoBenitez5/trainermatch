@@ -449,6 +449,7 @@ export default function App() {
               // PUBLIC TRAINER PROFILE VIEW
               <TrainerProfileView
                 trainer={selectedTrainer}
+                currentUser={currentUser}
                 onBack={() => setSelectedTrainer(null)}
                 isFavorite={favorites.includes(selectedTrainer.id)}
                 onToggleFavorite={handleToggleFavorite}

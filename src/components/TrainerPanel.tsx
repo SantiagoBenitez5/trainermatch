@@ -33,7 +33,8 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
   const [showClassModal, setShowClassModal] = useState(false);
   const [classForm, setClassForm] = useState<Partial<ClaseFields>>({
     "fld87QH0tdReGaKLT": "", // Titulo
-    "fldULIptbbqkM1pJZ": "Sesion individual", // Tipo
+    ldye17iriK8T181P": "Pública", // Visibilidad
+    "fldULIptbbqkM1pJZ": "Clase grupal", // Tipo
     "fldGVEVEy6iIpwb9b": "Gimnasio", // Disciplina
     "fld5GqA8PNqmIFJrp": "", // Fecha_Hora
     "fldvzS4FE93uzNHMY": 60, // Duracion_Minutos
@@ -41,9 +42,15 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
     "fldh1XAPkKdfTnVEB": 10, // Cupo_Maximo
     "fldVYzxNcAP93MAkA": 5000, // Precio
     "fldwUwWi8eU8vXUfI": "", // Descripcion
+    "fldY2Ed9MrcpR6uwG": "Cualquiera", // Sexo_Preferente
     "fld7DZ1q8VMGOVWPw": "" // Notas_Trainer
   });
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
+
+  // Selected class for student management detail modal
+  const [selectedClassDetail, setSelectedClassDetail] = useState<ClaseRecord | null>(null);
+  const [classInviteEmail, setClassInviteEmail] = useState("");
+  const [classInviteLoading, setClassInviteLoading] = useState(false);
 
   const [showPagoModal, setShowPagoModal] = useState(false);
   const [pagoForm, setPagoForm] = useState<Partial<PagoFields>>({
@@ -59,7 +66,8 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
   const [viewingPaymentUserUid, setViewingPaymentUserUid] = useState<string | null>(null);
 
   // Filters for classes
-  const [classFilter, setClassFilter] = useState<"proximas" | "pasadas" | "todas">("proximas");
+  const [classTimeFilter, setClassTimeFilter] = useState<"proximas" | "pasadas" | "todas">("proximas");
+  const [classVisibilityFilter, setClassVisibilityFilter] = useState<"todas" | "Pública" | "Profesional privada" | "Rutina personal">("todas");
 
   // Fetch Trainer Data
   const fetchData = async () => {
@@ -225,6 +233,112 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
     }
   };
 
+  // Class enrollment action handlers
+  const handleApproveStudent = async (classId: string, studentUid: string) => {
+    try {
+      setActionLoading(true);
+      const res = await fetch(`/api/clases/${classId}/aprobar/${encodeURIComponent(studentUid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userUid: currentUser.uid })
+      });
+      if (res.ok) {
+        const updatedClase = await res.json();
+        if (selectedClassDetail && selectedClassDetail.id === classId) {
+          setSelectedClassDetail(updatedClase);
+        }
+        await fetchData();
+      } else {
+        const text = await res.text();
+        alert("Error al aprobar solicitud: " + text);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectStudent = async (classId: string, studentUid: string) => {
+    try {
+      setActionLoading(true);
+      const res = await fetch(`/api/clases/${classId}/rechazar/${encodeURIComponent(studentUid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userUid: currentUser.uid })
+      });
+      if (res.ok) {
+        const updatedClase = await res.json();
+        if (selectedClassDetail && selectedClassDetail.id === classId) {
+          setSelectedClassDetail(updatedClase);
+        }
+        await fetchData();
+      } else {
+        const text = await res.text();
+        alert("Error al rechazar solicitud: " + text);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRemoveStudent = async (classId: string, studentUid: string) => {
+    if (!window.confirm("¿Confirmás remover a este alumno de la clase?")) return;
+    try {
+      setActionLoading(true);
+      const res = await fetch(`/api/clases/${classId}/remover/${encodeURIComponent(studentUid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userUid: currentUser.uid })
+      });
+      if (res.ok) {
+        const updatedClase = await res.json();
+        if (selectedClassDetail && selectedClassDetail.id === classId) {
+          setSelectedClassDetail(updatedClase);
+        }
+        await fetchData();
+      } else {
+        const text = await res.text();
+        alert("Error al remover alumno: " + text);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleInviteStudentToClass = async (e: React.FormEvent, classId: string) => {
+    e.preventDefault();
+    if (!classInviteEmail) return;
+    try {
+      setClassInviteLoading(true);
+      const res = await fetch(`/api/clases/${classId}/invitar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteEmail: classInviteEmail, userUid: currentUser.uid })
+      });
+      if (res.ok) {
+        const updatedClase = await res.json();
+        if (selectedClassDetail && selectedClassDetail.id === classId) {
+          setSelectedClassDetail(updatedClase);
+        }
+        setClassInviteEmail("");
+        alert(`Invitación enviada exitosamente a ${classInviteEmail}`);
+        await fetchData();
+      } else {
+        const text = await res.text();
+        alert("Error al invitar alumno: " + text);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setClassInviteLoading(false);
+    }
+  };
+
   // 4. Cancel class
   const handleCancelClass = async (classId: string) => {
     if (!window.confirm("¿Estás seguro de que querés cancelar esta clase? Esta acción notificará a los alumnos anotados.")) return;
@@ -383,15 +497,20 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
     .filter(p => p.fields["fldZdQmdRurKxtAuu"] === "Pendiente" || p.fields["fldZdQmdRurKxtAuu"] === "Confirmado_Usuario")
     .reduce((sum, p) => sum + (p.fields["fldgNjpumZClUVDJ6"] || 0), 0);
 
-  // Filter classes by time
+  // Filter classes by time & visibility
   const now = new Date();
   const sortedClases = [...clases].sort((a, b) => new Date(a.fields["fld5GqA8PNqmIFJrp"]).getTime() - new Date(b.fields["fld5GqA8PNqmIFJrp"]).getTime());
   
   const filteredClases = sortedClases.filter(c => {
+    const vis = c.fields[ldye17iriK8T181P"] || (c.fields as any)["Visibilidad"] || "Pública";
+    if (classVisibilityFilter !== "todas" && vis !== classVisibilityFilter) {
+      return false;
+    }
+
     const classDate = new Date(c.fields["fld5GqA8PNqmIFJrp"]);
-    if (classFilter === "proximas") return classDate >= now && c.fields["fldORKAoJFYsBDuOU"] !== "Cancelada";
-    if (classFilter === "pasadas") return classDate < now || c.fields["fldORKAoJFYsBDuOU"] === "Cancelada";
-    return true; // "todas"
+    if (classTimeFilter === "proximas") return classDate >= now && c.fields["fldORKAoJFYsBDuOU"] !== "Cancelada";
+    if (classTimeFilter === "pasadas") return classDate < now || c.fields["fldORKAoJFYsBDuOU"] === "Cancelada";
+    return true;
   });
 
   const nextThreeClases = sortedClases
@@ -654,28 +773,67 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
                 </button>
               </div>
 
-              {/* Filter horizontal bar */}
+              {/* Visibility Filter Tabs */}
+              <div className="space-y-1.5">
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Filtrar por Visibilidad</label>
+                <div className="flex bg-slate-100 p-0.5 rounded-lg text-[10px]">
+                  <button
+                    onClick={() => setClassVisibilityFilter("todas")}
+                    className={`flex-1 py-1 font-bold rounded-md transition-all cursor-pointer ${
+                      classVisibilityFilter === "todas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  <button
+                    onClick={() => setClassVisibilityFilter("Pública")}
+                    className={`flex-1 py-1 font-bold rounded-md transition-all cursor-pointer ${
+                      classVisibilityFilter === "Pública" ? "bg-emerald-500 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Públicas
+                  </button>
+                  <button
+                    onClick={() => setClassVisibilityFilter("Profesional privada")}
+                    className={`flex-1 py-1 font-bold rounded-md transition-all cursor-pointer ${
+                      classVisibilityFilter === "Profesional privada" ? "bg-blue-600 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Privadas
+                  </button>
+                  <button
+                    onClick={() => setClassVisibilityFilter("Rutina personal")}
+                    className={`flex-1 py-1 font-bold rounded-md transition-all cursor-pointer ${
+                      classVisibilityFilter === "Rutina personal" ? "bg-purple-600 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Rutinas
+                  </button>
+                </div>
+              </div>
+
+              {/* Time Filter Bar */}
               <div className="flex bg-slate-100 p-0.5 rounded-lg">
                 <button
-                  onClick={() => setClassFilter("proximas")}
+                  onClick={() => setClassTimeFilter("proximas")}
                   className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                    classFilter === "proximas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    classTimeFilter === "proximas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   Próximas
                 </button>
                 <button
-                  onClick={() => setClassFilter("pasadas")}
+                  onClick={() => setClassTimeFilter("pasadas")}
                   className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                    classFilter === "pasadas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    classTimeFilter === "pasadas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   Pasadas / Canceladas
                 </button>
                 <button
-                  onClick={() => setClassFilter("todas")}
+                  onClick={() => setClassTimeFilter("todas")}
                   className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
-                    classFilter === "todas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    classTimeFilter === "todas" ? "bg-white text-slate-800 shadow-xs" : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   Todas
@@ -687,38 +845,43 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
                 <div className="text-center py-12 bg-white rounded-xl border border-slate-100 shadow-xs p-6">
                   <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <h4 className="font-bold text-slate-700 text-xs">No hay clases registradas</h4>
-                  <p className="text-[10px] text-slate-400">Creá tu primera clase grupal o sesión individual para invitar alumnos.</p>
+                  <p className="text-[10px] text-slate-400">Creá tu primera clase grupal o sesión privada para gestionar alumnos.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {filteredClases.map((clase) => {
                     const classDate = new Date(clase.fields["fld5GqA8PNqmIFJrp"]);
+                    const vis = clase.fields[ldye17iriK8T181P"] || (clase.fields as any)["Visibilidad"] || "Pública";
                     const signedUpUids = (clase.fields["fldVHgp4Ncfhz87HV"] || "").split(",").map(s => s.trim()).filter(Boolean);
-                    const attendedUids = (clase.fields["fld7DZ1q8VMGOVWPw"] || "").split(",").map(s => s.trim()).filter(Boolean);
+                    const pendingUids = (clase.fields["fldMhg6dIVBz4zndi"] || (clase.fields as any)["Usuarios_Pendientes"] || "").split(",").map(s => s.trim()).filter(Boolean);
+                    const waitlistUids = (clase.fields["fldAIHxWGe33npWxZ"] || (clase.fields as any)["Usuarios_Espera"] || "").split(",").map(s => s.trim()).filter(Boolean);
                     const isPast = classDate < now;
                     const isCancelled = clase.fields["fldORKAoJFYsBDuOU"] === "Cancelada";
 
                     return (
-                      <div key={clase.id} className={`bg-white rounded-xl border p-4 shadow-xs space-y-3.5 transition-all ${isCancelled ? 'border-red-100 bg-red-50/20 opacity-80' : 'border-slate-100'}`}>
+                      <div key={clase.id} className={`bg-white rounded-xl border p-4 shadow-xs space-y-3 transition-all ${isCancelled ? 'border-red-100 bg-red-50/20 opacity-80' : 'border-slate-100'}`}>
                         
                         {/* Title & info */}
                         <div className="flex justify-between items-start gap-2">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                              {/* Visibilidad Pill */}
                               <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${
-                                isCancelled ? 'bg-red-100 text-red-700' :
-                                clase.fields["fldULIptbbqkM1pJZ"] === "Sesion individual" ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                vis === "Pública" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" :
+                                vis === "Profesional privada" ? "bg-blue-100 text-blue-800 border border-blue-200" :
+                                "bg-purple-100 text-purple-800 border border-purple-200"
                               }`}>
-                                {clase.fields["fldULIptbbqkM1pJZ"]}
+                                {vis}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-500">
-                                {clase.fields["fldGVEVEy6iIpwb9b"]}
+
+                              <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                {clase.fields["fldULIptbbqkM1pJZ"]} • {clase.fields["fldGVEVEy6iIpwb9b"]}
                               </span>
                             </div>
-                            <h4 className="font-extrabold text-sm text-slate-800 mt-1 truncate">{clase.fields["fld87QH0tdReGaKLT"]}</h4>
+                            <h4 className="font-extrabold text-sm text-slate-800 truncate">{clase.fields["fld87QH0tdReGaKLT"]}</h4>
                           </div>
 
-                          <div className="flex gap-1">
+                          <div className="flex gap-1 shrink-0">
                             {!isCancelled && !isPast && (
                               <button
                                 onClick={() => {
@@ -745,58 +908,42 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
                         </div>
 
                         {/* Timing and details grid */}
-                        <div className="grid grid-cols-2 gap-2.5 text-[10px] text-slate-500 border-t border-slate-50 pt-2.5">
+                        <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 border-t border-slate-50 pt-2">
                           <div className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span>{classDate.toLocaleDateString("es-AR", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}hs ({clase.fields["fldvzS4FE93uzNHMY"]} min)</span>
                           </div>
                           <div className="flex items-center gap-1 min-w-0">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="truncate">{clase.fields["fld3bk5b2r4FCpy8d"]}</span>
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{clase.fields["fld3bk5b2r4FCpy8d"] || "A convenir"}</span>
                           </div>
                         </div>
 
-                        {/* Signups list & Attendance checks */}
-                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                              Inscriptos ({signedUpUids.length} / {clase.fields["fldh1XAPkKdfTnVEB"]})
-                            </span>
-                            <span className="text-[9px] text-slate-500 font-bold">
-                              ${clase.fields["fldVYzxNcAP93MAkA"]} por clase
-                            </span>
-                          </div>
-
-                          {signedUpUids.length === 0 ? (
-                            <p className="text-[10px] text-slate-400 italic">No hay alumnos anotados aún.</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              {signedUpUids.map((uid) => {
-                                // Resolve name of student from connections
-                                const studentCon = conexiones.find(c => c.fields["fldmYw6VU51sfz62t"] === uid);
-                                const studentName = studentCon ? studentCon.fields["fldw4Jwc7kq6SUz3n"] : "Alumno";
-                                const isChecked = attendedUids.includes(uid);
-
-                                return (
-                                  <div key={uid} className="flex items-center justify-between text-xs py-1">
-                                    <span className="font-semibold text-slate-700 text-[11px] truncate">{studentName}</span>
-                                    
-                                    {/* Attendance Checkbox */}
-                                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={(e) => handleToggleAttendance(clase, uid, e.target.checked)}
-                                        className="rounded text-[#7C3AED] focus:ring-[#7C3AED] w-3.5 h-3.5 border-slate-300"
-                                      />
-                                      <span className="text-[10px] font-bold text-slate-500">Asistió</span>
-                                    </label>
-                                  </div>
-                                );
-                              })}
+                        {/* Student status & Manage button */}
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-center justify-between gap-2">
+                          <div className="space-y-0.5 text-[10px]">
+                            <div className="font-bold text-slate-700">
+                              Alumnos: <span className="text-[#7C3AED] font-extrabold">{signedUpUids.length} / {clase.fields["fldh1XAPkKdfTnVEB"] || "Sin límite"}</span>
                             </div>
-                          )}
+                            <div className="flex gap-2 text-[9px]">
+                              {pendingUids.length > 0 && (
+                                <span className="text-amber-600 font-extrabold">● {pendingUids.length} pendientes</span>
+                              )}
+                              {waitlistUids.length > 0 && (
+                                <span className="text-purple-600 font-extrabold">● {waitlistUids.length} en espera</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setSelectedClassDetail(clase)}
+                            className="px-3 py-1.5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-lg font-bold text-[10px] cursor-pointer shrink-0 shadow-xs flex items-center gap-1"
+                          >
+                            <Users className="w-3 h-3" />
+                            <span>Gestionar Alumnos</span>
+                          </button>
                         </div>
+
                       </div>
                     );
                   })}
@@ -1004,7 +1151,7 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
       {/* B. NEW / EDIT CLASS MODAL */}
       {showClassModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-[380px] p-5 shadow-xl space-y-4 max-h-[85vh] overflow-y-auto text-slate-800 no-scrollbar">
+          <div className="bg-white rounded-2xl w-full max-w-[400px] p-5 shadow-xl space-y-4 max-h-[85vh] overflow-y-auto text-slate-800 no-scrollbar">
             <div className="flex justify-between items-start">
               <h4 className="font-extrabold text-sm text-slate-800">{editingClassId ? "Editar Clase" : "Programar Nueva Clase"}</h4>
               <button onClick={() => setShowClassModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1025,16 +1172,29 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
                 />
               </div>
 
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase">Visibilidad</label>
+                <select
+                  value={classForm[ldye17iriK8T181P"] || (classForm as any)["Visibilidad"] || "Pública"}
+                  onChange={e => setClassForm({ ...classForm, ldye17iriK8T181P": e.target.value as any })}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs font-semibold"
+                >
+                  <option value="Pública">Públicas — En perfil público (cualquiera puede solicitar)</option>
+                  <option value="Profesional privada">Profesional privada — Solo panel (invitación directa)</option>
+                  <option value="Rutina personal">Rutina personal — "Mi Entrenamiento" (sin alumnos)</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase">Tipo</label>
                   <select
-                    value={classForm["fldULIptbbqkM1pJZ"] || "Sesion individual"}
+                    value={classForm["fldULIptbbqkM1pJZ"] || "Clase grupal"}
                     onChange={e => setClassForm({ ...classForm, "fldULIptbbqkM1pJZ": e.target.value as any })}
                     className="w-full bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs"
                   >
-                    <option value="Sesion individual">Sesión Individual</option>
                     <option value="Clase grupal">Clase Grupal</option>
+                    <option value="Sesion individual">Sesión Individual</option>
                     <option value="Rutina online">Rutina Online</option>
                   </select>
                 </div>
@@ -1126,11 +1286,153 @@ export default function TrainerPanel({ currentUser, myProfile }: TrainerPanelPro
               <button
                 type="submit"
                 disabled={actionLoading}
-                className="w-full bg-[#7C3AED] text-white py-2.5 rounded-xl font-bold text-xs"
+                className="w-full bg-[#7C3AED] text-white py-2.5 rounded-xl font-bold text-xs cursor-pointer shadow-xs"
               >
                 {actionLoading ? "Guardando..." : "Guardar Clase"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* D. MANAGE STUDENTS MODAL */}
+      {selectedClassDetail && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-[440px] p-5 shadow-xl space-y-4 max-h-[85vh] overflow-y-auto text-slate-800 no-scrollbar">
+            <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+              <div>
+                <h4 className="font-extrabold text-sm text-slate-800">{selectedClassDetail.fields["fld87QH0tdReGaKLT"]}</h4>
+                <p className="text-[10px] text-slate-500">Gestión de Alumnos y Solicitudes</p>
+              </div>
+              <button onClick={() => setSelectedClassDetail(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Invite directly by email */}
+            <form onSubmit={(e) => handleInviteStudentToClass(e, selectedClassDetail.id)} className="bg-purple-50 p-3 rounded-xl border border-purple-100 space-y-2">
+              <label className="block text-[10px] font-bold text-purple-900 uppercase">Invitar Alumno por Email</label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  required
+                  placeholder="email@alumno.com"
+                  value={classInviteEmail}
+                  onChange={e => setClassInviteEmail(e.target.value)}
+                  className="flex-1 bg-white border border-purple-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-[#7C3AED] outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={classInviteLoading}
+                  className="bg-[#7C3AED] text-white px-3 py-1.5 rounded-lg font-bold text-[10px] cursor-pointer"
+                >
+                  {classInviteLoading ? "..." : "Invitar"}
+                </button>
+              </div>
+            </form>
+
+            {/* Pending Requests */}
+            {(() => {
+              const pendingUids = (selectedClassDetail.fields["fldMhg6dIVBz4zndi"] || (selectedClassDetail.fields as any)["Usuarios_Pendientes"] || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (pendingUids.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <h5 className="text-[10px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    Solicitudes Pendientes ({pendingUids.length})
+                  </h5>
+                  <div className="space-y-1.5">
+                    {pendingUids.map(uid => {
+                      const name = connectionsResolveName(conexiones, uid) || uid;
+                      return (
+                        <div key={uid} className="bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/50 flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-800 truncate">{name}</span>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleApproveStudent(selectedClassDetail.id, uid)}
+                              disabled={actionLoading}
+                              className="px-2 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded font-bold text-[10px] cursor-pointer"
+                            >
+                              Aprobar
+                            </button>
+                            <button
+                              onClick={() => handleRejectStudent(selectedClassDetail.id, uid)}
+                              disabled={actionLoading}
+                              className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded font-bold text-[10px] cursor-pointer"
+                            >
+                              Rechazar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Enrolled Students */}
+            {(() => {
+              const signedUpUids = (selectedClassDetail.fields["fldVHgp4Ncfhz87HV"] || "").split(",").map(s => s.trim()).filter(Boolean);
+              return (
+                <div className="space-y-2">
+                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Alumnos Confirmados ({signedUpUids.length} / {selectedClassDetail.fields["fldh1XAPkKdfTnVEB"] || "Sin límite"})
+                  </h5>
+                  {signedUpUids.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No hay alumnos confirmados todavía.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {signedUpUids.map(uid => {
+                        const name = connectionsResolveName(conexiones, uid) || uid;
+                        return (
+                          <div key={uid} className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-slate-700 truncate">{name}</span>
+                            <button
+                              onClick={() => handleRemoveStudent(selectedClassDetail.id, uid)}
+                              disabled={actionLoading}
+                              className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded font-bold text-[10px] cursor-pointer"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Waitlist */}
+            {(() => {
+              const waitlistUids = (selectedClassDetail.fields["fldAIHxWGe33npWxZ"] || (selectedClassDetail.fields as any)["Usuarios_Espera"] || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (waitlistUids.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <h5 className="text-[10px] font-bold text-purple-700 uppercase tracking-wider">
+                    Lista de Espera ({waitlistUids.length})
+                  </h5>
+                  <div className="space-y-1.5">
+                    {waitlistUids.map(uid => {
+                      const name = connectionsResolveName(conexiones, uid) || uid;
+                      return (
+                        <div key={uid} className="bg-purple-50/50 p-2 rounded-lg border border-purple-100 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-700 truncate">{name}</span>
+                          <button
+                            onClick={() => handleApproveStudent(selectedClassDetail.id, uid)}
+                            disabled={actionLoading}
+                            className="px-2 py-1 bg-emerald-500 text-white rounded font-bold text-[10px] cursor-pointer"
+                          >
+                            Aprobar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -538,6 +538,196 @@ export async function updateConexion(id: string, fields: Record<string, any>, us
   }
 }
 
+export async function getClaseById(id: string) {
+  if (USE_MEMORY_FALLBACK) {
+    const cls = MEMORY_DB.clases.find(c => c.id === id);
+    if (!cls) throw new Error("Clase no encontrada");
+    return cls;
+  }
+  try {
+    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/tblOBFdoidtYoDYc2/${id}?returnFieldsByFieldId=true`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_PAT}` } });
+    if (!res.ok) throw new Error("Clase no encontrada");
+    return await res.json();
+  } catch (err) {
+    triggerMemoryFallback(err);
+    const cls = MEMORY_DB.clases.find(c => c.id === id);
+    if (!cls) throw new Error("Clase no encontrada");
+    return cls;
+  }
+}
+
+export async function updateClaseFieldsRaw(id: string, fieldsToUpdate: Record<string, any>) {
+  if (USE_MEMORY_FALLBACK) {
+    const cls = MEMORY_DB.clases.find(c => c.id === id);
+    if (!cls) throw new Error("Clase no encontrada");
+    cls.fields = { ...cls.fields, ...fieldsToUpdate };
+    return cls;
+  }
+  try {
+    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/tblOBFdoidtYoDYc2/${id}?returnFieldsByFieldId=true`;
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_PAT}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ fields: fieldsToUpdate })
+    });
+    if (!res.ok) throw new Error("Error al actualizar la clase en Airtable");
+    const data = await res.json();
+    const idx = MEMORY_DB.clases.findIndex(c => c.id === id);
+    if (idx !== -1) MEMORY_DB.clases[idx] = data;
+    return data;
+  } catch (err) {
+    triggerMemoryFallback(err);
+    const cls = MEMORY_DB.clases.find(c => c.id === id);
+    if (!cls) throw new Error("Clase no encontrada");
+    cls.fields = { ...cls.fields, ...fieldsToUpdate };
+    return cls;
+  }
+}
+
+export async function getPublicClases(trainerUid?: string) {
+  const all = await getClases(trainerUid);
+  const records = (all.records || []).filter((c: any) => {
+    const vis = c.fields[ldye17iriK8T181P"] || c.fields["Visibilidad"] || "Pública";
+    const estado = c.fields["fldORKAoJFYsBDuOU"] || c.fields["Estado"] || "Programada";
+    return vis === "Pública" && estado === "Programada";
+  });
+  return { records };
+}
+
+export async function solicitarClase(id: string, userUid: string) {
+  const cls = await getClaseById(id);
+  const anotadosStr = cls.fields["fldVHgp4Ncfhz87HV"] || cls.fields["Usuarios_Anotados"] || "";
+  const pendientesStr = cls.fields["fldMhg6dIVBz4zndi"] || cls.fields["Usuarios_Pendientes"] || "";
+  const esperaStr = cls.fields["fldAIHxWGe33npWxZ"] || cls.fields["Usuarios_Espera"] || "";
+
+  const anotados = anotadosStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const pendientes = pendientesStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const espera = esperaStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  if (anotados.includes(userUid)) {
+    throw new Error("Ya estás anotado en esta clase.");
+  }
+  if (!pendientes.includes(userUid)) {
+    pendientes.push(userUid);
+  }
+
+  const newEspera = espera.filter((u: string) => u !== userUid);
+
+  return await updateClaseFieldsRaw(id, {
+    "fldMhg6dIVBz4zndi": pendientes.join(", "),
+    "fldAIHxWGe33npWxZ": newEspera.join(", ")
+  });
+}
+
+export async function unirseEsperaClase(id: string, userUid: string) {
+  const cls = await getClaseById(id);
+  const anotadosStr = cls.fields["fldVHgp4Ncfhz87HV"] || cls.fields["Usuarios_Anotados"] || "";
+  const esperaStr = cls.fields["fldAIHxWGe33npWxZ"] || cls.fields["Usuarios_Espera"] || "";
+
+  const anotados = anotadosStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const espera = esperaStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  if (anotados.includes(userUid)) {
+    throw new Error("Ya estás anotado en esta clase.");
+  }
+  if (!espera.includes(userUid)) {
+    espera.push(userUid);
+  }
+
+  return await updateClaseFieldsRaw(id, {
+    "fldAIHxWGe33npWxZ": espera.join(", ")
+  });
+}
+
+export async function aprobarSolicitudClase(id: string, targetUid: string, trainerUid: string) {
+  const cls = await getClaseById(id);
+  const ownerUid = cls.fields["fldvjNV6oxhkSz34V"] || cls.fields["Trainer_UID"];
+  if (ownerUid !== trainerUid) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const anotadosStr = cls.fields["fldVHgp4Ncfhz87HV"] || cls.fields["Usuarios_Anotados"] || "";
+  const pendientesStr = cls.fields["fldMhg6dIVBz4zndi"] || cls.fields["Usuarios_Pendientes"] || "";
+  const esperaStr = cls.fields["fldAIHxWGe33npWxZ"] || cls.fields["Usuarios_Espera"] || "";
+
+  const anotados = anotadosStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const pendientes = pendientesStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const espera = esperaStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  if (!anotados.includes(targetUid)) {
+    anotados.push(targetUid);
+  }
+  const newPendientes = pendientes.filter((u: string) => u !== targetUid);
+  const newEspera = espera.filter((u: string) => u !== targetUid);
+
+  return await updateClaseFieldsRaw(id, {
+    "fldVHgp4Ncfhz87HV": anotados.join(", "),
+    "fldMhg6dIVBz4zndi": newPendientes.join(", "),
+    "fldAIHxWGe33npWxZ": newEspera.join(", ")
+  });
+}
+
+export async function rechazarSolicitudClase(id: string, targetUid: string, userUid: string) {
+  const cls = await getClaseById(id);
+  const ownerUid = cls.fields["fldvjNV6oxhkSz34V"] || cls.fields["Trainer_UID"];
+  if (ownerUid !== userUid && targetUid !== userUid) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const pendientesStr = cls.fields["fldMhg6dIVBz4zndi"] || cls.fields["Usuarios_Pendientes"] || "";
+  const esperaStr = cls.fields["fldAIHxWGe33npWxZ"] || cls.fields["Usuarios_Espera"] || "";
+
+  const pendientes = pendientesStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const espera = esperaStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  const newPendientes = pendientes.filter((u: string) => u !== targetUid);
+  const newEspera = espera.filter((u: string) => u !== targetUid);
+
+  return await updateClaseFieldsRaw(id, {
+    "fldMhg6dIVBz4zndi": newPendientes.join(", "),
+    "fldAIHxWGe33npWxZ": newEspera.join(", ")
+  });
+}
+
+export async function removerAlumnoClase(id: string, targetUid: string, userUid: string) {
+  const cls = await getClaseById(id);
+  const ownerUid = cls.fields["fldvjNV6oxhkSz34V"] || cls.fields["Trainer_UID"];
+  if (ownerUid !== userUid && targetUid !== userUid) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const anotadosStr = cls.fields["fldVHgp4Ncfhz87HV"] || cls.fields["Usuarios_Anotados"] || "";
+  const anotados = anotadosStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const newAnotados = anotados.filter((u: string) => u !== targetUid);
+
+  return await updateClaseFieldsRaw(id, {
+    "fldVHgp4Ncfhz87HV": newAnotados.join(", ")
+  });
+}
+
+export async function invitarAlumnoClase(id: string, inviteIdentifier: string, trainerUid: string) {
+  const cls = await getClaseById(id);
+  const ownerUid = cls.fields["fldvjNV6oxhkSz34V"] || cls.fields["Trainer_UID"];
+  if (ownerUid !== trainerUid) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  const pendientesStr = cls.fields["fldMhg6dIVBz4zndi"] || cls.fields["Usuarios_Pendientes"] || "";
+  const pendientes = pendientesStr.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  if (!pendientes.includes(inviteIdentifier)) {
+    pendientes.push(inviteIdentifier);
+  }
+
+  return await updateClaseFieldsRaw(id, {
+    "fldMhg6dIVBz4zndi": pendientes.join(", ")
+  });
+}
+
 export async function getClases(trainerUid?: string, usuarioUid?: string) {
   if (USE_MEMORY_FALLBACK) {
     return { records: getMemoryClases(trainerUid, usuarioUid) };
@@ -546,7 +736,7 @@ export async function getClases(trainerUid?: string, usuarioUid?: string) {
   try {
     let formula = "";
     if (trainerUid) formula = `{fldvjNV6oxhkSz34V} = '${trainerUid}'`;
-    else if (usuarioUid) formula = `FIND('${usuarioUid}', {fldVHgp4Ncfhz87HV})`;
+    else if (usuarioUid) formula = `OR(FIND('${usuarioUid}', {fldVHgp4Ncfhz87HV}), FIND('${usuarioUid}', {fldMhg6dIVBz4zndi}), FIND('${usuarioUid}', {fldAIHxWGe33npWxZ}))`;
 
     const url = new URL(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/tblOBFdoidtYoDYc2`);
     url.searchParams.append("returnFieldsByFieldId", "true");
